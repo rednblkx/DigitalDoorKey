@@ -28,5 +28,6 @@ public:
   DDKAuthenticationContext(DigitalKeyType type,const std::function<bool(std::vector<uint8_t> &, std::vector<uint8_t> &, bool)> &nfc,
                           readerData_t &readerData, const std::function<void(const readerData_t &)> &save_cb);
 	void setAliroFCI(const std::vector<uint8_t> &fci);
+	void overrideProtocolVersion(std::array<uint8_t,2> ver);
   std::tuple<std::vector<uint8_t>, std::vector<uint8_t>, KeyFlow> authenticate(KeyFlow);
 };

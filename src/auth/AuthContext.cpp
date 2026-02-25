@@ -101,6 +101,10 @@ void DDKAuthenticationContext::setAliroFCI(const std::vector<uint8_t> &fci) {
   aliroFCI = fci;
 }
 
+void DDKAuthenticationContext::overrideProtocolVersion(std::array<uint8_t,2> ver) {
+  this->protocolVersion = ver;
+}
+
 /**
  * The function `authenticate` in the `HKAuthenticationContext` class processes authentication data and
  * returns the issuer and endpoint IDs along with the authentication flow type.
