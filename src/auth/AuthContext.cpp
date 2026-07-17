@@ -228,21 +228,26 @@ std::tuple<std::vector<uint8_t>, std::vector<uint8_t>, KeyFlow> DDKAuthenticatio
         auth_params.context = std::get<2>(stdAuth).get();
         auto attestation = DDKAttestationAuth(auth_params).attest();
         if ((flowUsed = std::get<KeyFlow>(attestation)) == kFlowATTESTATION) {
-          hkEndpoint_t endpoint;
-          foundIssuer = std::get<0>(attestation);
-          std::vector<uint8_t> devicePubKey = std::get<1>(attestation);
-          std::vector<uint8_t> deviceKeyX = CommonCryptoUtils::get_x(std::get<1>(attestation));
-          endpoint.endpoint_pk_x = deviceKeyX;
-          std::vector<uint8_t> eId = getHashIdentifier(devicePubKey);
-          endpoint.endpoint_id = std::vector<uint8_t>{eId.begin(), eId.begin() + 6};
-          endpoint.endpoint_pk = devicePubKey;
+          if(foundEndpoint != nullptr){
+            foundEndpoint->endpoint_prst_k.clear();
+            foundEndpoint->endpoint_prst_k.insert(foundEndpoint->endpoint_prst_k.begin(), persistentKey.begin(), persistentKey.end());
+          } else {
+            hkEndpoint_t endpoint;
+            foundIssuer = std::get<0>(attestation);
+            std::vector<uint8_t> devicePubKey = std::get<1>(attestation);
+            std::vector<uint8_t> deviceKeyX = CommonCryptoUtils::get_x(std::get<1>(attestation));
+            endpoint.endpoint_pk_x = deviceKeyX;
+            std::vector<uint8_t> eId = getHashIdentifier(devicePubKey);
+            endpoint.endpoint_id = std::vector<uint8_t>{eId.begin(), eId.begin() + 6};
+            endpoint.endpoint_pk = devicePubKey;
+            persistentKey = std::get<3>(stdAuth);
+            endpoint.endpoint_prst_k.clear();
+            endpoint.endpoint_prst_k.insert(endpoint.endpoint_prst_k.begin(), persistentKey.begin(), persistentKey.end());
+            foundEndpoint = &(*foundIssuer->endpoints.emplace(foundIssuer->endpoints.end(),endpoint));
+          }
           LOG(I, "ATTESTATION Flow complete, transaction took %lli ms", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - startTime).count());
-          LOG(D, "Endpoint %s Authenticated via ATTESTATION Flow", fmt::format("{:02X}", fmt::join(endpoint.endpoint_id, "")).c_str());
-          persistentKey = std::get<3>(stdAuth);
-          endpoint.endpoint_prst_k.clear();
-          endpoint.endpoint_prst_k.insert(endpoint.endpoint_prst_k.begin(), persistentKey.begin(), persistentKey.end());
-          LOG(V, "New Persistent Key: %s", fmt::format("{:02X}", fmt::join(endpoint.endpoint_prst_k, "")).c_str());
-          foundEndpoint = &(*foundIssuer->endpoints.emplace(foundIssuer->endpoints.end(),endpoint));
+          LOG(D, "Endpoint %s Authenticated via ATTESTATION Flow", fmt::format("{:02X}", fmt::join(foundEndpoint->endpoint_id, "")).c_str());
+          LOG(V, "New Persistent Key: %s", fmt::format("{:02X}", fmt::join(foundEndpoint->endpoint_prst_k, "")).c_str());
         }
       }
       if(flowUsed >= kFlowSTANDARD){
