@@ -183,7 +183,7 @@ std::tuple<std::vector<uint8_t>, int> HK_HomeKit::provision_device_cred(std::vec
       }
     }
     if (foundIssuer != nullptr) {
-      hkEndpoint_t* foundEndpoint = 0;
+      hkEndpoint_t* foundEndpoint = nullptr;
       tlv_it tlvDevicePubKey = dcrTlv.find(kDevice_Req_Public_Key);
       std::vector<uint8_t> devicePubKey = tlvDevicePubKey->value;
       devicePubKey.insert(devicePubKey.begin(), 0x04);
@@ -194,7 +194,7 @@ std::tuple<std::vector<uint8_t>, int> HK_HomeKit::provision_device_cred(std::vec
           foundEndpoint = &endpoint;
         }
       }
-      if (foundEndpoint == 0) {
+      if (foundEndpoint == nullptr) {
         LOG(D, "Adding new endpoint - ID: %s , PublicKey: %s", fmt::format("{:02X}", fmt::join(endpointId, "")).c_str(), fmt::format("{:02X}", fmt::join(devicePubKey, "")).c_str());
         hkEndpoint_t endpoint;
         std::vector<uint8_t> x_coordinate = get_x(devicePubKey);
