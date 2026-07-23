@@ -15,6 +15,7 @@ public:
     DigitalKeySecureContext() = default;
     DigitalKeySecureContext(const std::vector<uint8_t> &volatileKey);
     DigitalKeySecureContext(const std::array<uint8_t,32> *skReader, const std::array<uint8_t,32> *skDevice);
+    ~DigitalKeySecureContext();
 
     std::tuple<std::vector<uint8_t>, std::vector<uint8_t>> encrypt_command(unsigned char* data, size_t dataSize);
     std::vector<uint8_t> decrypt_response(const unsigned char* data, size_t dataSize);

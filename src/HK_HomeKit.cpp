@@ -1,14 +1,10 @@
 #include <HK_HomeKit.h>
+#include "CommonCryptoUtils.h"
 #include "TLV8.hpp"
 #include "logging.h"
 #include <mbedtls/ecp.h>
 #include <mbedtls/sha256.h>
 #include <mbedtls/sha1.h>
-#if defined(CONFIG_IDF_CMAKE)
-#include <esp_random.h>
-#else
-#include <sodium.h>
-#endif
 #include <mbedtls/error.h>
 #include <vector>
 #include "fmt/base.h"
@@ -95,16 +91,6 @@ std::vector<uint8_t> HK_HomeKit::processResult() {
   return std::vector<uint8_t>();
 }
 
-int HK_HomeKit::esp_rng(void*, uint8_t* buf, size_t len)
-{
-  #ifdef CONFIG_IDF_CMAKE
-  esp_fill_random(buf, len);
-  #else
-  randombytes(buf, len);
-  #endif
-  return 0;
-}
-
 std::vector<uint8_t> HK_HomeKit::get_x(std::vector<uint8_t> &pubKey)
 {
   mbedtls_ecp_group grp;
@@ -180,8 +166,8 @@ std::tuple<std::vector<uint8_t>, int> HK_HomeKit::provision_device_cred(std::vec
   std::vector<uint8_t> issuerIdentifier = tlvIssuerId->value;
   if (issuerIdentifier.size() > 0) {
     for (auto& issuer : readerData.issuers) {
-      if (std::equal(issuer.issuer_id.begin(), issuer.issuer_id.end(), issuerIdentifier.begin())) {
-        LOG(D, "Found issuer - ID: %s", fmt::format("{:02X}", fmt::join(issuer.issuer_id, "")).c_str());
+      if (CommonCryptoUtils::constant_time_compare(issuer.issuer_id, issuerIdentifier)) {
+        LOG_HEX_FMT(D, "Found issuer - ID", issuer.issuer_id);
         foundIssuer = &issuer;
       }
     }
@@ -193,8 +179,8 @@ std::tuple<std::vector<uint8_t>, int> HK_HomeKit::provision_device_cred(std::vec
       std::vector<uint8_t> hash = getHashIdentifier(devicePubKey, false);
       std::vector<uint8_t> endpointId(hash.begin(), hash.begin() + 6);
       for (auto& endpoint : foundIssuer->endpoints) {
-        if (std::equal(endpoint.endpoint_id.begin(), endpoint.endpoint_id.end(), endpointId.begin())) {
-          LOG(D, "Found endpoint - ID: %s", fmt::format("{:02X}", fmt::join(endpoint.endpoint_id, "")).c_str());
+        if (CommonCryptoUtils::constant_time_compare(endpoint.endpoint_id, endpointId)) {
+          LOG_HEX_FMT(D, "Found endpoint - ID", endpoint.endpoint_id);
           foundEndpoint = &endpoint;
         }
       }

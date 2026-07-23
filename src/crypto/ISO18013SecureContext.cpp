@@ -2,6 +2,7 @@
   Code highly inspired by https://github.com/kormax/apple-home-key-reader/blob/main/util/iso18013.py
  */
 
+#include "CommonCryptoUtils.h"
 #include "fmt/ranges.h"
 #include <ISO18013SecureContext.h>
 #include <mbedtls/hkdf.h>
@@ -38,15 +39,22 @@ ISO18013SecureContext::ISO18013SecureContext(const std::vector<uint8_t> &sharedS
     LOG(V, "%s", redactHex("READER Key", outReader.data(), outReader.size()).c_str());
     LOG(V, "%s", redactHex("ENDPOINT Key", outEndpoint.data(), outEndpoint.size()).c_str());
     if(!ret1){
-        this->readerKey.insert(this->readerKey.begin(), outReader.begin(), outReader.end());
+        this->readerKey.assign(outReader.begin(), outReader.end());
+        CommonCryptoUtils::secure_zero(outReader.data(), outReader.size());
     } else {
         LOG(E, "Cannot derive READER Key - %d", ret1);
     }
     if(!ret2){
-        this->endpointKey.insert(this->endpointKey.begin(), outEndpoint.begin(), outEndpoint.end());
+        this->endpointKey.assign(outEndpoint.begin(), outEndpoint.end());
+        CommonCryptoUtils::secure_zero(outEndpoint.data(), outEndpoint.size());
     } else {
         LOG(E, "Cannot derive Endpoint Key - %d", ret2);
     }
+}
+
+ISO18013SecureContext::~ISO18013SecureContext() {
+    CommonCryptoUtils::secure_zero(readerKey.data(), readerKey.size());
+    CommonCryptoUtils::secure_zero(endpointKey.data(), endpointKey.size());
 }
 
 std::vector<uint8_t> ISO18013SecureContext::getReaderIV() const
@@ -75,10 +83,9 @@ std::vector<uint8_t> ISO18013SecureContext::encryptMessageToEndpoint(const std::
     }
     std::vector<uint8_t> ciphertext(message.size() + 16);
     std::vector<uint8_t> iv = getReaderIV();
-    mbedtls_gcm_context ctx;
-    mbedtls_gcm_init(&ctx);
+    CommonCryptoUtils::GcmGuard ctx;
 
-    int setKey = mbedtls_gcm_setkey(&ctx, MBEDTLS_CIPHER_ID_AES, this->readerKey.data(), this->keyLength * 8);
+    int setKey = mbedtls_gcm_setkey(ctx, MBEDTLS_CIPHER_ID_AES, this->readerKey.data(), this->keyLength * 8);
 
     if (setKey != 0)
     {
@@ -86,12 +93,10 @@ std::vector<uint8_t> ISO18013SecureContext::encryptMessageToEndpoint(const std::
         return std::vector<unsigned char>();
     }
 
-    int enc = mbedtls_gcm_crypt_and_tag(&ctx, MBEDTLS_GCM_ENCRYPT, message.size(),
+    int enc = mbedtls_gcm_crypt_and_tag(ctx, MBEDTLS_GCM_ENCRYPT, message.size(),
                                         iv.data(), iv.size(), NULL, 0,
                                         message.data(), ciphertext.data(),
                                         16, ciphertext.data() + message.size());
-
-    mbedtls_gcm_free(&ctx);
 
     if (enc != 0)
     {
@@ -166,30 +171,27 @@ std::vector<uint8_t> ISO18013SecureContext::decryptMessageFromEndpoint(const std
 
     std::vector<uint8_t> iv = getEndpointIV();
 
-    mbedtls_gcm_context ctx;
-    mbedtls_gcm_init(&ctx);
+    CommonCryptoUtils::GcmGuard ctx;
 
-    int setKey = mbedtls_gcm_setkey(&ctx, MBEDTLS_CIPHER_ID_AES, endpointKey.data(), keyLength * 8);
-    if (setKey != 0)
+    int setKeyErr = mbedtls_gcm_setkey(ctx, MBEDTLS_CIPHER_ID_AES, endpointKey.data(), keyLength * 8);
+    if (setKeyErr != 0)
     {
-        char err[64];
-        mbedtls_strerror(setKey, err, 64);
-        LOG(E, "Cannot set key - %s - %d", err, setKey);
+        char err_msg[128];
+        mbedtls_strerror(setKeyErr, err_msg, sizeof(err_msg));
+        LOG(E, "Cannot set key - %s - %d", err_msg, setKeyErr);
         return std::vector<unsigned char>();
     }
-    int dec = mbedtls_gcm_auth_decrypt(&ctx, cborCiphertext.size() - 16,
+    int decErr = mbedtls_gcm_auth_decrypt(ctx, cborCiphertext.size() - 16,
                                        iv.data(), iv.size(), nullptr, 0,
                                        cborCiphertext.data() + cborCiphertext.size() - 16, 16,
                                        cborCiphertext.data(),
                                        plaintext.data());
 
-    mbedtls_gcm_free(&ctx);
-
-    if (dec != 0)
+    if (decErr != 0)
     {
-        char err[64];
-        mbedtls_strerror(setKey, err, 64);
-        LOG(E, "Cannot decrypt - %s", err);
+        char err_msg[128];
+        mbedtls_strerror(decErr, err_msg, sizeof(err_msg));
+        LOG(E, "Cannot decrypt - %s - %d", err_msg, decErr);
         return std::vector<unsigned char>();
     }
 

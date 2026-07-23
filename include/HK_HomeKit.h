@@ -16,7 +16,6 @@ class HK_HomeKit
     std::tuple<std::vector<uint8_t>, int> provision_device_cred(std::vector<uint8_t> buf);
     const std::function<void(const readerData_t&)> save_cb;
     const std::function<void()> remove_key_cb;
-    static int esp_rng(void *, uint8_t *buf, size_t len);
     int set_reader_key(std::vector<uint8_t>& buf);
   public:
     HK_HomeKit(readerData_t& readerData, std::function<void(const readerData_t&)> save_cb, std::function<void()> remove_key_cb, std::vector<uint8_t> &tlvData);

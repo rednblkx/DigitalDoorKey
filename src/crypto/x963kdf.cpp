@@ -4,6 +4,7 @@
 
 #include "x963kdf.h"
 #include <mbedtls/cmac.h>
+#include <cstdint>
 #include "logging.h"
 #if defined(CONFIG_IDF_CMAKE)
 #include <esp_log.h>
@@ -64,10 +65,9 @@ void X963KDF::_int_to_u32be(unsigned int n, unsigned char *result) {
 }
 
 bool X963KDF::constant_time_eq(const unsigned char* a, const unsigned char* b, size_t len) {
+    uint8_t diff = 0;
     for (size_t i = 0; i < len; ++i) {
-        if (a[i] != b[i]) {
-            return false;
-        }
+        diff |= static_cast<uint8_t>(a[i] ^ b[i]);
     }
-    return true;
+    return diff == 0;
 }

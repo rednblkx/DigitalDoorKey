@@ -11,6 +11,7 @@
 class ISO18013SecureContext {
 public:
     ISO18013SecureContext(const std::vector<uint8_t>& sharedSecret, const std::vector<uint8_t>& salt, size_t keyLength);
+    ~ISO18013SecureContext();
 
     std::vector<uint8_t> getReaderIV() const;
     std::vector<uint8_t> getEndpointIV() const;

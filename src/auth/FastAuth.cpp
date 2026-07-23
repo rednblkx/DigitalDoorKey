@@ -118,7 +118,7 @@ std::tuple<hkIssuer_t *, hkEndpoint_t *> DDKFastAuth::find_endpoint_by_cryptogra
         }
       }
       if (params.type == kHomeKey) {
-        if (!memcmp(hkdf.data(), cryptogram.data(), 16))
+        if (CommonCryptoUtils::constant_time_compare(hkdf.data(), cryptogram.data(), 16))
         {
           LOG(D, "Endpoint %s matches cryptogram", fmt::format("{:02X}", fmt::join(endpoint.endpoint_id, "")).c_str());
           foundIssuer = &issuer;

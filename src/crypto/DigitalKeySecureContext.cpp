@@ -3,7 +3,6 @@
  */
 
 #include "DigitalKeySecureContext.h"
-#include "fmt/ranges.h"
 #include "logging.h"
 #include <cstdint>
 #include <cstring>
@@ -177,6 +176,13 @@ DigitalKeySecureContext::DigitalKeySecureContext(const std::array<uint8_t,32> *s
     this->skDevice = skDevice;
 }
 
+DigitalKeySecureContext::~DigitalKeySecureContext() {
+    CommonCryptoUtils::secure_zero(kenc, sizeof(kenc));
+    CommonCryptoUtils::secure_zero(kmac, sizeof(kmac));
+    CommonCryptoUtils::secure_zero(krmac, sizeof(krmac));
+    CommonCryptoUtils::secure_zero(mac_chaining_value, sizeof(mac_chaining_value));
+}
+
 
 /**
  * The function encrypts a command using a digital key secure context and returns the encrypted data
@@ -235,7 +241,7 @@ std::vector<uint8_t> DigitalKeySecureContext::decrypt_response(const unsigned ch
         LOG_HEX_FMT(V, "calculated_rmac", calculated_rmac);
         if(cmac_status) return {};
 
-        if(memcmp(data + (dataSize - 8), calculated_rmac.data(), 8)){
+        if(!CommonCryptoUtils::constant_time_compare(data + (dataSize - 8), calculated_rmac.data(), 8)){
             LOG(E, "calculated_rmac != recv_rmac");
             return {};
         }
