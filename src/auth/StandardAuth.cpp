@@ -325,36 +325,27 @@ StandardAuthResult DDKStdAuth::attest()
         std::copy(vtlv5.begin(), vtlv5.end(), std::back_inserter(verification_hash_input_material));
 #endif
 
-        mbedtls_ecp_keypair keypair;
-        mbedtls_ecp_keypair_init(&keypair);
+        CommonCryptoUtils::EcpKeyPairGuard keypair;
 
         uint8_t hash[32];
 
         mbedtls_md(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), verification_hash_input_material.data(), verification_hash_input_material.size(), hash);
 
         LOG_HEX_FMT(D, "verification_hash_input_material", hash);
-        mbedtls_mpi r;
-        mbedtls_mpi s;
+        CommonCryptoUtils::MpiGuard r,s;
 
-        mbedtls_mpi_init(&r);
-        mbedtls_mpi_init(&s);
-        mbedtls_ecp_group_load(&keypair.private_grp, MBEDTLS_ECP_DP_SECP256R1);
-        int pubImport = mbedtls_ecp_point_read_binary(&keypair.private_grp, &keypair.private_Q, foundEndpoint->endpoint_pk.data(), foundEndpoint->endpoint_pk.size());
+        mbedtls_ecp_group_load(&keypair.kp.MBEDTLS_PRIVATE(grp), MBEDTLS_ECP_DP_SECP256R1);
+        int pubImport = mbedtls_ecp_point_read_binary(&keypair.kp.MBEDTLS_PRIVATE(grp), &keypair.kp.MBEDTLS_PRIVATE(Q), foundEndpoint->endpoint_pk.data(), foundEndpoint->endpoint_pk.size());
         LOG(V, "public key import result: %d", pubImport);
 
-        mbedtls_mpi_read_binary(&r, signature.data(), signature.size() / 2);
-        mbedtls_mpi_read_binary(&s, signature.data() + (signature.size() / 2), signature.size() / 2);
+        mbedtls_mpi_read_binary(r, signature.data(), signature.size() / 2);
+        mbedtls_mpi_read_binary(s, signature.data() + (signature.size() / 2), signature.size() / 2);
 
-        int result = mbedtls_ecdsa_verify(&keypair.private_grp, hash, 32, &keypair.private_Q, &r, &s);
+        int signature_result = mbedtls_ecdsa_verify(&keypair.kp.MBEDTLS_PRIVATE(grp), hash, 32, &keypair.kp.MBEDTLS_PRIVATE(Q), r, s);
 
-        mbedtls_mpi_free(&r);
-        mbedtls_mpi_free(&s);
+        LOG(V, "signature verification result: %d", signature_result);
 
-        mbedtls_ecp_keypair_free(&keypair);
-
-        LOG(V, "signature verification result: %d", result);
-
-        if (result == 0)
+        if (signature_result == 0)
         {
           if (params.type == kAliro) {
             Auth1_keying_material(derivedKey, ALIRO_CTX_PERSISTENT_ASTR, persistentKey);
