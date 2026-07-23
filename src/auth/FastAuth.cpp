@@ -85,11 +85,11 @@ std::tuple<hkIssuer_t *, hkEndpoint_t *> DDKFastAuth::find_endpoint_by_cryptogra
   hkIssuer_t *foundIssuer = nullptr;
   for (auto &&issuer : params.issuers)
   {
-    LOG(V, "Issuer: %s, Endpoints: %d", fmt::format("{:02X}", fmt::join(issuer.issuer_id, "")).c_str(), issuer.endpoints.size());
+    LOG(V, "Issuer: %s, Endpoints: %d", redactHex("", issuer.issuer_id.data(), issuer.issuer_id.size()).c_str(), issuer.endpoints.size());
     for (auto &&endpoint : issuer.endpoints)
     {
       if(endpoint.endpoint_prst_k.size() == 0) continue;
-      LOG(V, "Endpoint: %s, Persistent Key: %s", fmt::format("{:02X}", fmt::join(endpoint.endpoint_id, "")).c_str(), fmt::format("{:02X}", fmt::join(endpoint.endpoint_prst_k, "")).c_str());
+      LOG(V, "Endpoint: %s, Persistent Key: %s", redactHex("", endpoint.endpoint_id.data(), endpoint.endpoint_id.size()).c_str(), redactHex("PK", endpoint.endpoint_prst_k.data(), endpoint.endpoint_prst_k.size()).c_str());
       std::vector<uint8_t> hkdf(params.type == kHomeKey ? 58 : 160);
       Auth0_keying_material("VolatileFast", endpoint.endpoint_pk_x, endpoint.endpoint_prst_k, hkdf.data(), hkdf.size());
       LOG_HEX_FMT(V, "HKDF Derived Key", hkdf);
@@ -121,7 +121,7 @@ std::tuple<hkIssuer_t *, hkEndpoint_t *> DDKFastAuth::find_endpoint_by_cryptogra
       if (params.type == kHomeKey) {
         if (CommonCryptoUtils::constant_time_compare(hkdf.data(), cryptogram.data(), 16))
         {
-          LOG(D, "Endpoint %s matches cryptogram", fmt::format("{:02X}", fmt::join(endpoint.endpoint_id, "")).c_str());
+          LOG(D, "Endpoint %s matches cryptogram", redactHex("", endpoint.endpoint_id.data(), endpoint.endpoint_id.size()).c_str());
           foundIssuer = &issuer;
           foundEndpoint = &endpoint;
           break;
@@ -156,7 +156,7 @@ FastAuthResult DDKFastAuth::attest(std::vector<uint8_t> &encryptedMessage)
   FastAuthResult result;
   if (std::get<1>(foundData) != nullptr)
   {
-    LOG(D, "Endpoint %s Authenticated via FAST Flow", fmt::format("{:02X}", fmt::join(std::get<1>(foundData)->endpoint_id, "")).c_str());
+    LOG(D, "Endpoint %s Authenticated via FAST Flow", redactHex("", std::get<1>(foundData)->endpoint_id.data(), std::get<1>(foundData)->endpoint_id.size()).c_str());
     result.issuer = std::get<hkIssuer_t *>(foundData);
     result.endpoint = std::get<hkEndpoint_t*>(foundData);
     result.flow = kFlowFAST;

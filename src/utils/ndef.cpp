@@ -153,10 +153,10 @@ NDEFRecord* NDEFMessage::findType(const char * type){
   }
   if (foundRecord != nullptr) {
     LOG(D, "NDEF RECORD ID: %s, TNF: %s, TYPE: %s, PAYLOAD: %s",
-        fmt::format("{:02X}", fmt::join(foundRecord->id, "")).c_str(),
-        fmt::format("{:02X}", fmt::join(std::vector<uint8_t>{foundRecord->tnf}, "")).c_str(),
-        fmt::format("{:02X}", fmt::join(foundRecord->type, "")).c_str(),
-        fmt::format("{:02X}", fmt::join(foundRecord->data, "")).c_str());
+        redactHex("", foundRecord->id).c_str(),
+        redactHex("", std::vector<uint8_t>{foundRecord->tnf}).c_str(),
+        redactHex("", foundRecord->type).c_str(),
+        redactHex("", foundRecord->data).c_str());
   } else {
     LOG(D, "NDEF findType: no record matched type (len=%d)", (int)type_len);
   }

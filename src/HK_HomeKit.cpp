@@ -28,15 +28,15 @@ std::vector<uint8_t> HK_HomeKit::processResult() {
     if (*operation->data() == kReader_Operation_Read)
       if ((*RKR).tag == kReader_Reader_Key_Request) {
         LOG(I,"GET READER KEY REQUEST");
-        if (readerData.reader_sk.size() > 0) {
+        if (!readerData.reader_sk.empty()) {
           TLV8 getResSub;
           getResSub.add(kReader_Res_Key_Identifier, readerData.reader_gid);
           std::vector<uint8_t> subTlv = getResSub.get();
-          LOG(D, "SUB-TLV LENGTH:  %d, DATA: %s", (int)subTlv.size(), fmt::format("{:02X}", fmt::join(subTlv, "")).c_str());
+          LOG(D, "%s", redactHex("SUB-TLV", subTlv).c_str());
           TLV8 getResTlv;
           getResTlv.add(kReader_Res_Reader_Key_Response, subTlv);
           std::vector<uint8_t> tlvRes = getResTlv.get();
-          LOG(D, "TLV LENGTH: %d, DATA: %s", (int)tlvRes.size(), fmt::format("{:02X}", fmt::join(tlvRes, "")).c_str());
+          LOG(D, "%s", redactHex("TLV", tlvRes).c_str());
           return tlvRes;
         }
         return std::vector<uint8_t>{  };
@@ -52,7 +52,7 @@ std::vector<uint8_t> HK_HomeKit::processResult() {
         TLV8 rkResSub;
         rkResSub.add(kReader_Res_Status, 0);
         std::vector<uint8_t> rkSubTlv = rkResSub.get();
-        LOG(D, "SUB-TLV LENGTH: %d, DATA: %s", (int)rkSubTlv.size(), fmt::format("{:02X}", fmt::join(rkSubTlv, "")).c_str());
+        LOG(D, "%s", redactHex("SUB-TLV", rkSubTlv).c_str());
         TLV8 rkResTlv;
         rkResTlv.add(kReader_Res_Reader_Key_Response, rkSubTlv);
         std::vector<uint8_t> rkRes = rkResTlv.get();
@@ -69,12 +69,12 @@ std::vector<uint8_t> HK_HomeKit::processResult() {
         dcrResSubTlv.add(kDevice_Res_Status, std::get<1>(state));
         std::vector<uint8_t> packedRes = dcrResSubTlv.get();
         LOG(D,"SUB-TLV: %d",(int)packedRes.size());
-        LOG(D,"SUB-TLV: %s", fmt::format("{:02X}", fmt::join(packedRes, "")).c_str());
+        LOG(D, "%s", redactHex("SUB-TLV", packedRes).c_str());
         TLV8 dcrResTlv;
         dcrResTlv.add(kDevice_Credential_Response, packedRes);
         std::vector<uint8_t> result = dcrResTlv.get();
         LOG(D,"TLV: %d", (int)result.size());
-        LOG(D,"TLV: %s", fmt::format("{:02X}", fmt::join(result, "")).c_str());
+        LOG(D, "%s", redactHex("TLV", result).c_str());
         return result;
       }
     }
@@ -104,7 +104,7 @@ std::vector<uint8_t> HK_HomeKit::get_x(std::vector<uint8_t> &pubKey)
   int ecp_write = mbedtls_mpi_write_binary(&point.pt.MBEDTLS_PRIVATE(X), X.data(), buffer_size_x);
   if(ecp_write != 0)
     LOG(E, "ecp_write - %d", ecp_write);
-  LOG(V, "PublicKey: %s, X Coordinate: %s", fmt::format("{:02X}", fmt::join(pubKey, "")).c_str(), fmt::format("{:02X}", fmt::join(X, "")).c_str());
+  LOG(V, "%s, %s", redactHex("PublicKey", pubKey).c_str(), redactHex("X Coordinate", X).c_str());
   return X;
 }
 
@@ -189,7 +189,7 @@ std::tuple<std::vector<uint8_t>, int> HK_HomeKit::provision_device_cred(std::vec
         }
       }
       if (foundEndpoint == nullptr) {
-        LOG(D, "Adding new endpoint - ID: %s , %s", fmt::format("{:02X}", fmt::join(endpointId, "")).c_str(), redactHex("PK", devicePubKey.data(), devicePubKey.size()).c_str());
+        LOG(D, "Adding new endpoint - ID: %s , %s", redactHex("", endpointId.data(), endpointId.size()).c_str(), redactHex("PK", devicePubKey.data(), devicePubKey.size()).c_str());
         hkEndpoint_t endpoint;
         std::vector<uint8_t> x_coordinate = get_x(devicePubKey);
         const tlv_t* tlvKeyType = dcrTlv.expect(kDevice_Req_Key_Type);

@@ -21,7 +21,7 @@
 #include <TLV8.hpp>
 
 std::vector<uint8_t> DDKAuthenticationContext::getHashIdentifier(const std::vector<uint8_t>& key) {
-  LOG(V, "Key: %s, Length: %d", fmt::format("{:02X}", fmt::join(key, "")).c_str(), key.size());
+  LOG(V, "%s", redactHex("Key", key).c_str());
   std::vector<unsigned char> hashable;
   hashable.insert(hashable.end(), key.begin(), key.end());
   LOG_HEX_FMT(V, "Hashable", hashable);
@@ -44,7 +44,7 @@ std::vector<uint8_t> DDKAuthenticationContext::commandFlow(CommandFlowStatus sta
   std::vector<uint8_t> cmdFlowRes(3);
   if (type == kHomeKey) {
     std::vector<uint8_t> apdu = {0x80, 0x3c, static_cast<uint8_t>(status), 0x0};
-    LOG(D, "APDU: %s, Length: %d", fmt::format("{:02X}", fmt::join(apdu, "")).c_str(), apdu.size());
+    LOG(D, "%s", redactHex("APDU", apdu).c_str());
     nfc(apdu, cmdFlowRes, false);
   }
   if (type == kAliro) {
@@ -160,7 +160,7 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
 
   apdu.insert(apdu.end(), std::make_move_iterator(fastTlv.begin()), std::make_move_iterator(fastTlv.end()));
   std::vector<uint8_t> response;
-  LOG(D, "Auth0 APDU Length: %d, DATA: %s", apdu.size(), fmt::format("{:02X}", fmt::join(apdu, "")).c_str());
+  LOG(D, "%s", redactHex("Auth0 APDU", apdu).c_str());
   nfc(apdu, response, false);
 #if defined(CONFIG_IDF_CMAKE)
   ESP_LOG_BUFFER_HEX_LEVEL(TAG, response.data(), response.size(), ESP_LOG_VERBOSE);
@@ -169,7 +169,7 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
     printf("%02X", response[i]);
   }
 #endif
-  LOG(D, "Auth0 Response Length: %d, DATA: %s", response.size(), fmt::format("{:02X}", fmt::join(response, "")).c_str());
+  LOG(D, "%s", redactHex("Auth0 Response", response).c_str());
   AuthContextResult result;
   if (response.size() > 64 && response[0] == 0x86) {
     DDKAuthParams auth_params{
@@ -206,7 +206,7 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
       {
         foundIssuer = fastAuth.issuer;
         foundEndpoint = fastAuth.endpoint;
-        LOG(D, "Endpoint %s Authenticated via FAST Flow", fmt::format("{:02X}", fmt::join(foundEndpoint->endpoint_id, "")).c_str());
+        LOG(D, "Endpoint %s Authenticated via FAST Flow", redactHex("", foundEndpoint->endpoint_id.data(), foundEndpoint->endpoint_id.size()).c_str());
       }
     }
     if(foundEndpoint == nullptr){
@@ -219,7 +219,7 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
         foundEndpoint = stdAuth.endpoint;
         if ((flowUsed = stdAuth.flow) == kFlowSTANDARD)
         {
-          LOG(D, "Endpoint %s Authenticated via STANDARD Flow", fmt::format("{:02X}", fmt::join(foundEndpoint->endpoint_id, "")).c_str());
+          LOG(D, "Endpoint %s Authenticated via STANDARD Flow", redactHex("", foundEndpoint->endpoint_id.data(), foundEndpoint->endpoint_id.size()).c_str());
           persistentKey = stdAuth.shared_secret;
           foundEndpoint->endpoint_prst_k.clear();
           foundEndpoint->endpoint_prst_k.insert(foundEndpoint->endpoint_prst_k.begin(), persistentKey.begin(), persistentKey.end());
@@ -250,7 +250,7 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
           }
           if(foundEndpoint != nullptr){
             LOG_HEX_FMT(V, "New Persistent Key", foundEndpoint->endpoint_prst_k);
-            LOG(D, "Endpoint %s Authenticated via ATTESTATION Flow", fmt::format("{:02X}", fmt::join(foundEndpoint->endpoint_id, "")).c_str());
+            LOG(D, "Endpoint %s Authenticated via ATTESTATION Flow", redactHex("", foundEndpoint->endpoint_id.data(), foundEndpoint->endpoint_id.size()).c_str());
           }
         }
       }
@@ -263,7 +263,7 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
       if (flowUsed < kFlowATTESTATION)
       {
         cmdFlowStatus = commandFlow(kCmdFlowSuccess);
-        LOG(D, "CONTROL FLOW RESPONSE: %s, Length: %d", fmt::format("{:02X}", fmt::join(cmdFlowStatus, "")).c_str(), cmdFlowStatus.size());
+        LOG(D, "%s", redactHex("CONTROL FLOW RESPONSE", cmdFlowStatus).c_str());
       }
       if (flowUsed == kFlowATTESTATION || cmdFlowStatus[0] == 0x90)
       {
@@ -273,7 +273,7 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
         result.flow = flowUsed;
         return result;
       } else {
-        LOG(E, "Control Flow Response not 0x90!, %s", fmt::format("{:02X}", fmt::join(cmdFlowStatus, "")).c_str());
+        LOG(E, "Control Flow Response not 0x90!, %s", redactHex("", cmdFlowStatus.data(), cmdFlowStatus.size()).c_str());
         result.issuer_id = foundIssuer->issuer_id;
         result.endpoint_id = foundEndpoint->endpoint_id;
         result.flow = kFlowFailed;

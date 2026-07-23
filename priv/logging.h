@@ -1,6 +1,8 @@
 #pragma once
 #include <string>
 #include <vector>
+#include <array>
+#include <type_traits>
 #include "fmt/format.h"
 #include "fmt/ranges.h"
 #if defined(CONFIG_IDF_CMAKE)
@@ -51,7 +53,8 @@ inline std::string redactHex(const char* label, const uint8_t* data, size_t len)
     return s;
 }
 
-// Overload for std::vector for convenience
-inline std::string redactHex(const char* label, const std::vector<uint8_t>& data) {
-    return redactHex(label, data.data(), data.size());
+// Overload for containers (vector, array, SecureBuffer) for convenience
+template <typename T>
+inline auto redactHex(const char* label, const T& container) -> decltype(container.data(), container.size(), std::string()) {
+    return redactHex(label, container.data(), container.size());
 }
