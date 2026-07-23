@@ -4,6 +4,15 @@
 #include <functional>
 #include <vector>
 
+/**
+ * Result of the higher-level Context authentication.
+ */
+struct AuthContextResult {
+    std::vector<uint8_t> issuer_id;
+    std::vector<uint8_t> endpoint_id;
+    KeyFlow flow;
+};
+
 class DDKAuthenticationContext
 {
 private:
@@ -29,5 +38,5 @@ public:
                           readerData_t &readerData, const std::function<void(const readerData_t &)> &save_cb);
 	void setAliroFCI(const std::vector<uint8_t> &fci);
 	void overrideProtocolVersion(std::array<uint8_t,2> ver);
-  std::tuple<std::vector<uint8_t>, std::vector<uint8_t>, KeyFlow> authenticate(KeyFlow);
+  AuthContextResult authenticate(KeyFlow);
 };

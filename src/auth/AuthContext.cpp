@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <DDKAuthContext.h>
+#include "AuthResults.hpp"
 #include "CommonCryptoUtils.h"
 #include "DDKReaderData.h"
 #include "fmt/ranges.h"
@@ -116,7 +117,7 @@ void DDKAuthenticationContext::overrideProtocolVersion(std::array<uint8_t,2> ver
  * @return A tuple containing the matching `issuer_id` and `ep_id`, and the successful flow from
  * the enum `KeyFlow`.
  */
-std::tuple<std::vector<uint8_t>, std::vector<uint8_t>, KeyFlow> DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
+AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
   auto startTime = std::chrono::high_resolution_clock::now();
   std::vector<uint8_t> fastTlv;
   fastTlv.reserve(protocolVersion.size() + readerEphPubKey.size() + transactionIdentifier.size() + readerIdentifier.size() + 8); // +8 for TLV overhead
@@ -169,6 +170,7 @@ std::tuple<std::vector<uint8_t>, std::vector<uint8_t>, KeyFlow> DDKAuthenticatio
   }
 #endif
   LOG(D, "Auth0 Response Length: %d, DATA: %s", response.size(), fmt::format("{:02X}", fmt::join(response, "")).c_str());
+  AuthContextResult result;
   if (response.size() > 64 && response[0] == 0x86) {
     DDKAuthParams auth_params{
       type,
@@ -200,10 +202,10 @@ std::tuple<std::vector<uint8_t>, std::vector<uint8_t>, KeyFlow> DDKAuthenticatio
       tlv_it crypt = Auth0Res.find(kAuth0_Cryptogram);
       std::vector<uint8_t> encryptedMessage = crypt->value;
       auto fastAuth = DDKFastAuth(auth_params).attest(encryptedMessage);
-      if (std::get<1>(fastAuth) != nullptr && (flowUsed = std::get<2>(fastAuth)) == kFlowFAST)
+      if (fastAuth && (flowUsed = fastAuth.flow) == kFlowFAST)
       {
-        foundIssuer = std::get<0>(fastAuth);
-        foundEndpoint = std::get<1>(fastAuth);
+        foundIssuer = fastAuth.issuer;
+        foundEndpoint = fastAuth.endpoint;
         LOG(D, "Endpoint %s Authenticated via FAST Flow", fmt::format("{:02X}", fmt::join(foundEndpoint->endpoint_id, "")).c_str());
       }
     }
@@ -212,42 +214,44 @@ std::tuple<std::vector<uint8_t>, std::vector<uint8_t>, KeyFlow> DDKAuthenticatio
       auth_params.reader_private_key = &readerData.reader_sk;
       auth_params.readerEphPrivKey = &readerEphPrivKey;
       auto stdAuth = DDKStdAuth(auth_params).attest();
-      if(std::get<1>(stdAuth) != nullptr){
-        foundIssuer = std::get<0>(stdAuth);
-        foundEndpoint = std::get<1>(stdAuth);
-        if ((flowUsed = std::get<4>(stdAuth)) == kFlowSTANDARD)
+      if(stdAuth){
+        foundIssuer = stdAuth.issuer;
+        foundEndpoint = stdAuth.endpoint;
+        if ((flowUsed = stdAuth.flow) == kFlowSTANDARD)
         {
           LOG(D, "Endpoint %s Authenticated via STANDARD Flow", fmt::format("{:02X}", fmt::join(foundEndpoint->endpoint_id, "")).c_str());
-          persistentKey = std::get<3>(stdAuth);
+          persistentKey = stdAuth.shared_secret;
           foundEndpoint->endpoint_prst_k.clear();
           foundEndpoint->endpoint_prst_k.insert(foundEndpoint->endpoint_prst_k.begin(), persistentKey.begin(), persistentKey.end());
           LOG(V, "New Persistent Key: %s", fmt::format("{:02X}", fmt::join(foundEndpoint->endpoint_prst_k, "")).c_str());
         }
       }
-      if ((std::get<4>(stdAuth) == kFlowNext || hkFlow == kFlowATTESTATION) && type != kAliro) {
-        auth_params.context = std::get<2>(stdAuth).get();
+      if ((stdAuth.flow == kFlowNext || hkFlow == kFlowATTESTATION) && type != kAliro) {
+        auth_params.context = stdAuth.secure_context.get();
         auto attestation = DDKAttestationAuth(auth_params).attest();
-        if ((flowUsed = std::get<KeyFlow>(attestation)) == kFlowATTESTATION) {
+        if ((flowUsed = attestation.flow) == kFlowATTESTATION) {
+          LOG(I, "ATTESTATION Flow complete, transaction took %lli ms", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - startTime).count());
           if(foundEndpoint != nullptr){
             foundEndpoint->endpoint_prst_k.clear();
             foundEndpoint->endpoint_prst_k.insert(foundEndpoint->endpoint_prst_k.begin(), persistentKey.begin(), persistentKey.end());
           } else {
             hkEndpoint_t endpoint;
-            foundIssuer = std::get<0>(attestation);
-            std::vector<uint8_t> devicePubKey = std::get<1>(attestation);
-            std::vector<uint8_t> deviceKeyX = CommonCryptoUtils::get_x(std::get<1>(attestation));
+            foundIssuer = attestation.issuer;
+            std::vector<uint8_t> devicePubKey = attestation.device_pub_key;
+            std::vector<uint8_t> deviceKeyX = CommonCryptoUtils::get_x(attestation.device_pub_key);
             endpoint.endpoint_pk_x = deviceKeyX;
             std::vector<uint8_t> eId = getHashIdentifier(devicePubKey);
             endpoint.endpoint_id = std::vector<uint8_t>{eId.begin(), eId.begin() + 6};
             endpoint.endpoint_pk = devicePubKey;
-            persistentKey = std::get<3>(stdAuth);
+            persistentKey = stdAuth.shared_secret;
             endpoint.endpoint_prst_k.clear();
             endpoint.endpoint_prst_k.insert(endpoint.endpoint_prst_k.begin(), persistentKey.begin(), persistentKey.end());
             foundEndpoint = &(*foundIssuer->endpoints.emplace(foundIssuer->endpoints.end(),endpoint));
           }
-          LOG(I, "ATTESTATION Flow complete, transaction took %lli ms", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - startTime).count());
-          LOG(D, "Endpoint %s Authenticated via ATTESTATION Flow", fmt::format("{:02X}", fmt::join(foundEndpoint->endpoint_id, "")).c_str());
-          LOG(V, "New Persistent Key: %s", fmt::format("{:02X}", fmt::join(foundEndpoint->endpoint_prst_k, "")).c_str());
+          if(foundEndpoint != nullptr){
+            LOG_HEX_DATA(V, "New Persistent Key", foundEndpoint->endpoint_prst_k);
+            LOG(D, "Endpoint %s Authenticated via ATTESTATION Flow", fmt::format("{:02X}", fmt::join(foundEndpoint->endpoint_id, "")).c_str());
+          }
         }
       }
       if(flowUsed >= kFlowSTANDARD){
@@ -264,14 +268,20 @@ std::tuple<std::vector<uint8_t>, std::vector<uint8_t>, KeyFlow> DDKAuthenticatio
       if (flowUsed == kFlowATTESTATION || cmdFlowStatus[0] == 0x90)
       {
         LOG(I, "Endpoint authenticated, transaction took %lli ms", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - startTime).count());
-        return std::make_tuple(foundIssuer->issuer_id, foundEndpoint->endpoint_id, flowUsed);
+        result.issuer_id = foundIssuer->issuer_id;
+        result.endpoint_id = foundEndpoint->endpoint_id;
+        result.flow = flowUsed;
+        return result;
       } else {
         LOG(E, "Control Flow Response not 0x90!, %s", fmt::format("{:02X}", fmt::join(cmdFlowStatus, "")).c_str());
-        return std::make_tuple(foundIssuer->issuer_id, foundEndpoint->endpoint_id, kFlowFailed);
+        result.issuer_id = foundIssuer->issuer_id;
+        result.endpoint_id = foundEndpoint->endpoint_id;
+        result.flow = kFlowFailed;
+        return result;
       }
     } else commandFlow(kCmdFlowFailed);
   }
   commandFlow(kCmdFlowFailed);
   LOG(E, "Response not valid, something went wrong!");
-  return std::make_tuple(std::vector<uint8_t>(), std::vector<uint8_t>(), kFlowFailed);
+  return result;
 }

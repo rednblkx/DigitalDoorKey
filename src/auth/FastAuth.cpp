@@ -1,4 +1,5 @@
 #include "FastAuth.h"
+#include "AuthResults.hpp"
 #include "fmt/ranges.h"
 #include "logging.h"
 #include <mbedtls/hkdf.h>
@@ -148,16 +149,21 @@ std::tuple<hkIssuer_t *, hkEndpoint_t *> DDKFastAuth::find_endpoint_by_cryptogra
  * so, it logs the authentication and returns the tuple with the FAST flow type. If the authentication
  * fails, it logs the failure and returns the tuple with the STANDARD flow type.
  */
-std::tuple<hkIssuer_t *, hkEndpoint_t *, KeyFlow> DDKFastAuth::attest(std::vector<uint8_t> &encryptedMessage)
+FastAuthResult DDKFastAuth::attest(std::vector<uint8_t> &encryptedMessage)
 {
   auto foundData = find_endpoint_by_cryptogram(encryptedMessage);
+  FastAuthResult result;
   if (std::get<1>(foundData) != nullptr)
   {
     LOG(D, "Endpoint %s Authenticated via FAST Flow", fmt::format("{:02X}", fmt::join(std::get<1>(foundData)->endpoint_id, "")).c_str());
-    return std::make_tuple(std::get<0>(foundData), std::get<1>(foundData), kFlowFAST);
+    result.issuer = std::get<hkIssuer_t *>(foundData);
+    result.endpoint = std::get<hkEndpoint_t*>(foundData);
+    result.flow = kFlowFAST;
+    return result;
   }
   LOG(W, "FAST Flow failed! Moving to STANDARD Flow!");
-  return std::make_tuple(nullptr, nullptr, kFlowNext);
+  result.flow = kFlowNext;
+  return result;
 }
 
 DDKFastAuth::DDKFastAuth(DDKAuthParams &params) : params(params) {

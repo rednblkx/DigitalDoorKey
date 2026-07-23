@@ -1,9 +1,6 @@
 #pragma once
-#include "DDKReaderData.h"
-#include "DigitalKeySecureContext.h"
 #include "AuthParams.h"
-#include <functional>
-#include <memory>
+#include "AuthResults.hpp"
 #include <string_view>
 #include <vector>
 
@@ -18,5 +15,5 @@ private:
 
 public:
   DDKStdAuth(DDKAuthParams &params);
-  std::tuple<hkIssuer_t *, hkEndpoint_t *, std::unique_ptr<DigitalKeySecureContext>, std::array<uint8_t,32>, KeyFlow> attest();
+  StandardAuthResult attest();
 };

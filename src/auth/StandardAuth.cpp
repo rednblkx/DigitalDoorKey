@@ -1,4 +1,5 @@
 #include "StandardAuth.h"
+#include "AuthResults.hpp"
 #include "CommonCryptoUtils.h"
 #include "DigitalKeySecureContext.h"
 #include "DDKReaderData.h"
@@ -122,7 +123,7 @@ DDKStdAuth::DDKStdAuth(DDKAuthParams &params) : params(params) {
  * 4. A 32 byte array containing the derived persistent key
  * 5. An enum value of type `KeyFlow`
  */
-std::tuple<hkIssuer_t *, hkEndpoint_t *, std::unique_ptr<DigitalKeySecureContext>, std::array<uint8_t,32>, KeyFlow> DDKStdAuth::attest()
+StandardAuthResult DDKStdAuth::attest()
 {
   // int readerContext = 1096652137;
   std::array<uint8_t,4> readerCtx{0x41, 0x5d, 0x95, 0x69};
@@ -241,6 +242,7 @@ std::tuple<hkIssuer_t *, hkEndpoint_t *, std::unique_ptr<DigitalKeySecureContext
   }
   hkEndpoint_t *foundEndpoint = nullptr;
   hkIssuer_t *foundIssuer = nullptr;
+  StandardAuthResult result;
   if (response.size() > 2 && response[response.size() - 2] == 0x90)
   {
     auto response_result = context->decrypt_response(response.data(), response.size() - 2);
@@ -257,7 +259,7 @@ std::tuple<hkIssuer_t *, hkEndpoint_t *, std::unique_ptr<DigitalKeySecureContext
         if (device_identifier.empty())
         {
           LOG(E, "TLV DATA INVALID!");
-          return std::make_tuple(foundIssuer, foundEndpoint, std::move(context), persistentKey, kFlowFailed);
+          goto err;
         }
         for (auto &&issuer : params.issuers)
         {
@@ -349,20 +351,36 @@ std::tuple<hkIssuer_t *, hkEndpoint_t *, std::unique_ptr<DigitalKeySecureContext
           if (params.type == kAliro) {
             Auth1_keying_material(derivedKey, ALIRO_CTX_PERSISTENT_ASTR, persistentKey);
           }
-          return std::make_tuple(foundIssuer, foundEndpoint, std::move(context), persistentKey, kFlowSTANDARD);
+          result.issuer = foundIssuer;
+          result.endpoint = foundEndpoint;
+          result.secure_context = std::move(context);
+          result.shared_secret = persistentKey;
+          result.flow = kFlowSTANDARD;
+          return result;
         }
         LOG(W, "Signature failed verification! Will attempt EXCHANGE flow(last resort)!");
-        return std::make_tuple(foundIssuer, foundEndpoint, std::move(context), persistentKey, kFlowNext);
+        goto next;
       }
       LOG(W, "Endpoint data missing! Will attempt EXCHANGE flow(last resort)!");
-      return std::make_tuple(foundIssuer, foundEndpoint, std::move(context), persistentKey, kFlowNext);
+      next:
+      result.issuer = foundIssuer;
+      result.endpoint = foundEndpoint;
+      result.secure_context = std::move(context);
+      result.shared_secret = persistentKey;
+      result.flow = kFlowNext;
+      return result;
     }
     else
     {
       LOG(E, "Invalid Response! STANDARD Flow failed!");
-      return std::make_tuple(foundIssuer, foundEndpoint, std::move(context), persistentKey, kFlowFailed);
+      goto err;
     }
   }
   LOG(E, "Response Status not 0x90, something went wrong!");
-  return std::make_tuple(foundIssuer, foundEndpoint, std::move(context), persistentKey, kFlowFailed);
+err:
+  result.issuer = foundIssuer;
+  result.endpoint = foundEndpoint;
+  result.secure_context = std::move(context);
+  result.shared_secret = persistentKey;
+  return result;
 }

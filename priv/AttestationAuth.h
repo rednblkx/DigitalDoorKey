@@ -1,7 +1,6 @@
 #include "DDKReaderData.h"
-#include "DigitalKeySecureContext.h"
 #include "AuthParams.h"
-#include <functional>
+#include "AuthResults.hpp"
 
 class DDKAttestationAuth
 {
@@ -16,5 +15,5 @@ private:
 
 public:
   DDKAttestationAuth(DDKAuthParams &params);
-  std::tuple<hkIssuer_t *, std::vector<uint8_t>, KeyFlow> attest();
+  AttestationResult attest();
 };

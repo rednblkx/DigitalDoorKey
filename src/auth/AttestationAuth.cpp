@@ -1,4 +1,5 @@
 #include "AttestationAuth.h"
+#include "AuthResults.hpp"
 #include "fmt/ranges.h"
 #include "ndef.h"
 #include "simple_tlv.hpp"
@@ -490,7 +491,7 @@ std::tuple<hkIssuer_t*, std::vector<uint8_t>> DDKAttestationAuth::verify(std::ve
     return std::make_tuple(nullptr, std::vector<uint8_t>());
 }
 
-std::tuple<hkIssuer_t *, std::vector<uint8_t>, KeyFlow> DDKAttestationAuth::attest()
+AttestationResult DDKAttestationAuth::attest()
 {
   attestation_exchange_common_secret.resize(32);
   #if defined(CONFIG_IDF_CMAKE)
@@ -515,6 +516,7 @@ std::tuple<hkIssuer_t *, std::vector<uint8_t>, KeyFlow> DDKAttestationAuth::atte
   std::vector<uint8_t> xchRes;
   params.nfc(xchApdu, xchRes, false);
   LOG(D, "APDU RES LENGTH: %d, DATA: %s", xchRes.size(), fmt::format("{:02X}", fmt::join(xchRes, "")).c_str());
+  AttestationResult result;
   if (xchRes.size() > 2 && xchRes[xchRes.size() - 2] == 0x90)
   {
     auto env1Data = envelope1Cmd();
@@ -528,11 +530,14 @@ std::tuple<hkIssuer_t *, std::vector<uint8_t>, KeyFlow> DDKAttestationAuth::atte
         {
           auto verify_result = verify(env2DataDec);
           if (std::get<1>(verify_result).size() > 0) {
-            return std::make_tuple(std::get<0>(verify_result), std::get<1>(verify_result), kFlowATTESTATION);
+            result.device_pub_key = std::get<std::vector<uint8_t>>(verify_result);
+            result.issuer = std::get<hkIssuer_t*>(verify_result);
+            result.flow = kFlowATTESTATION;
+            return result;
           }
         }
       }
     }
   }
-  return std::make_tuple(nullptr, std::vector<uint8_t>(), kFlowFailed);
+  return result;
 }
