@@ -1,5 +1,6 @@
 #include "DDKReaderData.h"
 #include <functional>
+#include <mutex>
 #include <tuple>
 
 class HK_HomeKit
@@ -8,6 +9,7 @@ class HK_HomeKit
     const char* TAG = "HK_HomeKit";
     std::vector<uint8_t> &tlvData;
     readerData_t& readerData;
+    static std::mutex provision_mutex;
     std::vector<uint8_t> getHashIdentifier(const std::vector<uint8_t>& key, bool sha256);
     std::vector<uint8_t> get_x(std::vector<uint8_t> &pubKey);
     std::vector<uint8_t> getPublicKey(uint8_t *privKey, size_t len);

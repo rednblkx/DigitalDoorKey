@@ -14,6 +14,8 @@
 #include "fmt/base.h"
 #include <fmt/ranges.h>
 
+std::mutex HK_HomeKit::provision_mutex;
+
 HK_HomeKit::HK_HomeKit(readerData_t& readerData, std::function<void(const readerData_t&)> save_cb, std::function<void()> remove_key_cb, std::vector<uint8_t>& tlvData) : tlvData(tlvData), readerData(readerData), save_cb(save_cb), remove_key_cb(remove_key_cb) { }
 
 std::vector<uint8_t> HK_HomeKit::processResult() {
@@ -44,7 +46,7 @@ std::vector<uint8_t> HK_HomeKit::processResult() {
         return std::vector<uint8_t>{  };
       }
   }
-  if (*operation->data() == kReader_Operation_Write) {
+  if (operation != rxTlv.end() && *operation->data() == kReader_Operation_Write) {
     if (RKR != rxTlv.end()) {
       LOG(I,"TLV RKR: %d", RKR->length());
       LOG(I,"SET READER KEY REQUEST");
@@ -81,7 +83,7 @@ std::vector<uint8_t> HK_HomeKit::processResult() {
       }
     }
   }
-  if (*operation->data() == kReader_Operation_Remove)
+  if (operation != rxTlv.end() && *operation->data() == kReader_Operation_Remove)
     if (RKR != rxTlv.end()) {
       LOG(I,"REMOVE READER KEY REQUEST");
       readerData.reader_gid.clear();
@@ -169,6 +171,7 @@ std::vector<uint8_t> HK_HomeKit::getHashIdentifier(const std::vector<uint8_t>& k
 }
 
 std::tuple<std::vector<uint8_t>, int> HK_HomeKit::provision_device_cred(std::vector<uint8_t> buf) {
+  std::lock_guard<std::mutex> lock(provision_mutex);
   LOG(D, "DCReq Buffer length: %d, data: %s", buf.size(), fmt::format("{:02X}", fmt::join(buf, "")).c_str());
   TLV8 dcrTlv;
   dcrTlv.parse(buf.data(), buf.size());
@@ -187,7 +190,8 @@ std::tuple<std::vector<uint8_t>, int> HK_HomeKit::provision_device_cred(std::vec
       tlv_it tlvDevicePubKey = dcrTlv.find(kDevice_Req_Public_Key);
       std::vector<uint8_t> devicePubKey = tlvDevicePubKey->value;
       devicePubKey.insert(devicePubKey.begin(), 0x04);
-      std::vector<uint8_t> endpointId = getHashIdentifier(devicePubKey, false);
+      std::vector<uint8_t> hash = getHashIdentifier(devicePubKey, false);
+      std::vector<uint8_t> endpointId(hash.begin(), hash.begin() + 6);
       for (auto& endpoint : foundIssuer->endpoints) {
         if (std::equal(endpoint.endpoint_id.begin(), endpoint.endpoint_id.end(), endpointId.begin())) {
           LOG(D, "Found endpoint - ID: %s", fmt::format("{:02X}", fmt::join(endpoint.endpoint_id, "")).c_str());
