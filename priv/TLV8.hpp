@@ -44,6 +44,7 @@ class TLV8 {
 private:
     list_type items; // Composition: Store items in a list
     bool use_ber_length_encoding = false; // Flag to control length encoding style (BER vs TLV8)
+    bool parse_ok_ = true;                // Tracks whether the last parse() completed cleanly
 
     // Helper for hex conversion in errors
     static std::string to_hex(uint8_t val) {
@@ -95,9 +96,34 @@ public:
         );
     }
 
+    // Safe accessor: returns a pointer to the first item with the given tag,
+    // or nullptr if not found (or if the parse failed). Use instead of
+    // dereferencing find() directly to avoid UB on miss.
+    tlv_t* expect(uint8_t tag) {
+        tlv_it it = find(tag);
+        return it == items.end() ? nullptr : &(*it);
+    }
+    const tlv_t* expect(uint8_t tag) const {
+        const_iterator it = find(tag);
+        return it == items.cend() ? nullptr : &(*it);
+    }
+
+    // Convenience: copies the value of the tag into `out` if present; returns
+    // false on miss or after a failed parse.
+    bool get(uint8_t tag, std::vector<uint8_t>& out) const {
+        const tlv_t* item = expect(tag);
+        if (item == nullptr) return false;
+        out = item->value;
+        return true;
+    }
+
     // --- Capacity ---
     bool empty() const { return items.empty(); }
     size_t size() const { return items.size(); }
+
+    // Reflects whether the most recent parse() completed without errors.
+    bool ok() const { return parse_ok_; }
+    explicit operator bool() const { return parse_ok_; }
 
     // --- Iterators ---
     tlv_it begin() { return items.begin(); }
@@ -253,6 +279,7 @@ public:
     // Unpack TLV items from the buffer (BER or TLV8)
     void parse(const uint8_t* buffer, size_t buffer_size) {
         items.clear();
+        parse_ok_ = false;
         const uint8_t* current_pos = buffer;
         const uint8_t* end_pos = buffer + buffer_size;
 
@@ -260,6 +287,7 @@ public:
             // Read Tag
             if (current_pos + 1 > end_pos) {
                 printf("Unpack error: Insufficient data for tag");
+                return;
             }
             uint8_t tag = *current_pos++;
 
@@ -269,6 +297,7 @@ public:
                     "%s", ("Unpack error: Insufficient data for length byte (tag: 0x" +
                     to_hex(tag) + ")").c_str()
                 );
+                return;
             }
             size_t len = 0;
             uint8_t len_byte = *current_pos++;
@@ -281,12 +310,14 @@ public:
                         "Unpack error: Unsupported BER length form (tag: 0x" +
                         to_hex(tag) + ", len_byte: 0x" + to_hex(len_byte) + ")").c_str()
                     );
+                    return;
                 }
                 if (current_pos + len_bytes_count > end_pos) {
                     printf(
                         "%s", ("Unpack error: Insufficient data for BER long length value (tag: 0x" +
                         to_hex(tag) + ")").c_str()
                     );
+                    return;
                 }
                 len = 0;
                 for (size_t i = 0; i < len_bytes_count; ++i) {
@@ -303,6 +334,7 @@ public:
                     "%s", ("Unpack error: Insufficient data for value (tag: 0x" +
                     to_hex(tag) + ", length: " + std::to_string(len) + ")").c_str()
                 );
+                return;
             }
             const uint8_t* value_start_ptr = current_pos;
 
@@ -326,6 +358,9 @@ public:
         if (current_pos != end_pos) {
             // Could indicate trailing garbage data. Add warning/error if needed.
             std::cerr << "Warning: Trailing data left after unpacking." << std::endl;
+            return;
         }
+
+        parse_ok_ = true;
     }
 };

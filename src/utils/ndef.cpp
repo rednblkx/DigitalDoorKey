@@ -138,13 +138,27 @@ std::vector<NDEFRecord> NDEFMessage::unpack(){
 
 NDEFRecord* NDEFMessage::findType(const char * type){
   NDEFRecord *foundRecord = nullptr;
+  size_t type_len = (type != nullptr) ? strlen(type) : 0;
   for (auto &&record : records)
   {
-    if(!strcmp(type, (const char *)record.type.data())){
+    // record.type has a trailing '\0' appended by the constructor; compare
+    // only the bytes that correspond to the actual type label.
+    const auto& rt = record.type;
+    size_t rt_len = (rt.empty() ? 0 : rt.size() - 1); // exclude trailing '\0'
+    if (type_len == rt_len &&
+        (rt_len == 0 || memcmp(type, rt.data(), rt_len) == 0)) {
       foundRecord = &record;
       break;
     }
   }
-  LOG(D, "NDEF RECORD ID: %s, TNF: %s, TYPE: %s, PAYLOAD: %s", fmt::format("{:02X}", fmt::join(foundRecord->id, "")).c_str(), fmt::format("{:02X}", fmt::join(std::vector<uint8_t>{foundRecord->tnf}, "")).c_str(), fmt::format("{:02X}", fmt::join(foundRecord->type, "")).c_str(), fmt::format("{:02X}", fmt::join(foundRecord->data, "")).c_str());
+  if (foundRecord != nullptr) {
+    LOG(D, "NDEF RECORD ID: %s, TNF: %s, TYPE: %s, PAYLOAD: %s",
+        fmt::format("{:02X}", fmt::join(foundRecord->id, "")).c_str(),
+        fmt::format("{:02X}", fmt::join(std::vector<uint8_t>{foundRecord->tnf}, "")).c_str(),
+        fmt::format("{:02X}", fmt::join(foundRecord->type, "")).c_str(),
+        fmt::format("{:02X}", fmt::join(foundRecord->data, "")).c_str());
+  } else {
+    LOG(D, "NDEF findType: no record matched type (len=%d)", (int)type_len);
+  }
   return foundRecord;
 }

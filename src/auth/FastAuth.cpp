@@ -102,19 +102,20 @@ std::tuple<hkIssuer_t *, hkEndpoint_t *> DDKFastAuth::find_endpoint_by_cryptogra
           LOG_HEX_FMT(D, "Decrypted Cryptogram", plaintext);
           TLV8 decryptedTlv;
           decryptedTlv.parse(plaintext.data(), plaintext.size());
-          auto identifier = decryptedTlv.find(0x5E);
-          auto issued_at = decryptedTlv.find(0x91);
-          auto expires_at = decryptedTlv.find(0x92);
-          if (identifier->value.empty() || issued_at->value.empty() || expires_at->value.empty()) {
+          auto idItem = decryptedTlv.expect(0x5E);
+          auto issuedAtItem = decryptedTlv.expect(0x91);
+          auto expiresAtItem = decryptedTlv.expect(0x92);
+          if (idItem && issuedAtItem && expiresAtItem) {
+            LOG(D, "Identifier: %s", redactHex("", idItem->value.data(), idItem->value.size()).c_str());
+            LOG(D, "issued_at: %s", redactHex("", issuedAtItem->value.data(), issuedAtItem->value.size()).c_str());
+            LOG(D, "expires_at: %s", redactHex("", expiresAtItem->value.data(), expiresAtItem->value.size()).c_str());
+            foundIssuer = &issuer;
+            foundEndpoint = &endpoint;
+            break;
+          } else {
             LOG(E, "Could not validate endpoint!");
             continue;
           }
-          LOG(D,  "Identifier: %s", fmt::format("{:02X}", fmt::join(identifier->value, "")).c_str());
-          LOG(D,  "issued_at: %s", fmt::format("{:02X}", fmt::join(issued_at->value, "")).c_str());
-          LOG(D,  "expires_at: %s", fmt::format("{:02X}", fmt::join(expires_at->value, "")).c_str());
-          foundIssuer = &issuer;
-          foundEndpoint = &endpoint;
-          break;
         }
       }
       if (params.type == kHomeKey) {

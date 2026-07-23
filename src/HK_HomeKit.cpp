@@ -162,7 +162,11 @@ std::tuple<std::vector<uint8_t>, int> HK_HomeKit::provision_device_cred(std::vec
   TLV8 dcrTlv;
   dcrTlv.parse(buf.data(), buf.size());
   hkIssuer_t* foundIssuer = nullptr;
-  tlv_it tlvIssuerId = dcrTlv.find(kDevice_Req_Issuer_Key_Identifier);
+  const tlv_t* tlvIssuerId = dcrTlv.expect(kDevice_Req_Issuer_Key_Identifier);
+  if (tlvIssuerId == nullptr) {
+    LOG(E, "Issuer Key Identifier missing from DCR");
+    return std::make_tuple(readerData.reader_gid, DOES_NOT_EXIST);
+  }
   std::vector<uint8_t> issuerIdentifier = tlvIssuerId->value;
   if (issuerIdentifier.size() > 0) {
     for (auto& issuer : readerData.issuers) {
@@ -173,7 +177,11 @@ std::tuple<std::vector<uint8_t>, int> HK_HomeKit::provision_device_cred(std::vec
     }
     if (foundIssuer != nullptr) {
       hkEndpoint_t* foundEndpoint = nullptr;
-      tlv_it tlvDevicePubKey = dcrTlv.find(kDevice_Req_Public_Key);
+      const tlv_t* tlvDevicePubKey = dcrTlv.expect(kDevice_Req_Public_Key);
+      if (tlvDevicePubKey == nullptr) {
+        LOG(E, "Device Public Key missing from DCR");
+        return std::make_tuple(issuerIdentifier, DOES_NOT_EXIST);
+      }
       std::vector<uint8_t> devicePubKey = tlvDevicePubKey->value;
       devicePubKey.insert(devicePubKey.begin(), 0x04);
       std::vector<uint8_t> hash = getHashIdentifier(devicePubKey, false);
@@ -188,7 +196,11 @@ std::tuple<std::vector<uint8_t>, int> HK_HomeKit::provision_device_cred(std::vec
         LOG(D, "Adding new endpoint - ID: %s , %s", fmt::format("{:02X}", fmt::join(endpointId, "")).c_str(), redactHex("PK", devicePubKey.data(), devicePubKey.size()).c_str());
         hkEndpoint_t endpoint;
         std::vector<uint8_t> x_coordinate = get_x(devicePubKey);
-        tlv_it tlvKeyType = dcrTlv.find(kDevice_Req_Key_Type);
+        const tlv_t* tlvKeyType = dcrTlv.expect(kDevice_Req_Key_Type);
+        if (tlvKeyType == nullptr || tlvKeyType->value.empty()) {
+          LOG(E, "Key Type missing from DCR");
+          return std::make_tuple(issuerIdentifier, DOES_NOT_EXIST);
+        }
         std::vector<uint8_t> keyType = tlvKeyType->value;
         endpoint.counter = 0;
         endpoint.key_type = *keyType.data();

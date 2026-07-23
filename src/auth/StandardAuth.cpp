@@ -251,45 +251,53 @@ StandardAuthResult DDKStdAuth::attest()
     {
       TLV8 decryptedTlv;
       decryptedTlv.parse(response_result.data(), response_result.size());
-      std::vector<uint8_t> signature = decryptedTlv.find(0x9E)->value;
-      if (params.type == kHomeKey) {
-        std::vector<uint8_t> device_identifier = decryptedTlv.find(0x4E)->value;
-        LOG_HEX_FMT(D, "Device Identifier", device_identifier);
-        LOG_HEX_FMT(D, "Signature", signature);
-        if (device_identifier.empty())
-        {
-          LOG(E, "TLV DATA INVALID!");
-          goto err;
-        }
-        for (auto &&issuer : params.issuers)
-        {
-          for (auto &&endpoint : issuer.endpoints)
-          {
-            if (std::equal(endpoint.endpoint_id.begin(), endpoint.endpoint_id.end(), device_identifier.begin()))
+      auto item = decryptedTlv.expect(0x9E);
+      std::vector<uint8_t> signature;
+      if (item) {
+        signature = item->value;
+        if (params.type == kHomeKey) {
+          if (auto idItem = decryptedTlv.expect(0x4E)) {
+            std::vector<uint8_t> device_identifier = idItem->value;
+            LOG_HEX_FMT(D, "Device Identifier", device_identifier);
+            LOG_HEX_FMT(D, "Signature", signature);
+            if (device_identifier.empty())
             {
-              LOG(D, "STD_AUTH: Found Matching Endpoint, ID: %s", fmt::format("{:02X}", fmt::join(endpoint.endpoint_id, "")).c_str());
-              foundEndpoint = &endpoint;
-              foundIssuer = &issuer;
-              epPkX = &endpoint.endpoint_pk_x;
+              LOG(E, "TLV DATA INVALID!");
+              goto err;
+            }
+            for (auto &&issuer : params.issuers)
+            {
+              for (auto &&endpoint : issuer.endpoints)
+              {
+                if (std::equal(endpoint.endpoint_id.begin(), endpoint.endpoint_id.end(), device_identifier.begin()))
+                {
+                  LOG(D, "STD_AUTH: Found Matching Endpoint, ID: %s", redactHex("", endpoint.endpoint_id.data(), endpoint.endpoint_id.size()).c_str());
+                  foundEndpoint = &endpoint;
+                  foundIssuer = &issuer;
+                  epPkX = &endpoint.endpoint_pk_x;
+                }
+              }
             }
           }
         }
-      }
-      if (params.type == kAliro) {
-        std::vector<uint8_t> devicePk = decryptedTlv.find(0x5A)->value;
-        for (auto &issuer: params.issuers) {
-          for (auto &endpoint: issuer.endpoints) {
-            if (memcmp(devicePk.data(), endpoint.endpoint_pk.data(), 65) == 0) {
-              foundIssuer = &issuer;
-              foundEndpoint = &endpoint;
-              LOG(I, "Found matching endpoint with public key: %s",
-                  fmt::format("{:02X}", fmt::join(devicePk, "")).c_str());
-              epPkX = &endpoint.endpoint_pk_x;
-              break;
+        if (params.type == kAliro) {
+          if (auto pkItem = decryptedTlv.expect(0x5A)) {
+            std::vector<uint8_t> devicePk = pkItem->value;
+            for (auto &issuer: params.issuers) {
+              for (auto &endpoint: issuer.endpoints) {
+                if (devicePk.size() >= endpoint.endpoint_pk.size() && memcmp(devicePk.data(), endpoint.endpoint_pk.data(), endpoint.endpoint_pk.size()) == 0) {
+                  foundIssuer = &issuer;
+                  foundEndpoint = &endpoint;
+                  LOG(I, "Found matching endpoint with public key: %s",
+                      redactHex("", devicePk.data(), devicePk.size()).c_str());
+                  epPkX = &endpoint.endpoint_pk_x;
+                  break;
+                }
+              }
+              if (foundEndpoint != nullptr) {
+                break;
+              }
             }
-          }
-          if (foundEndpoint != nullptr) {
-            break;
           }
         }
       }
