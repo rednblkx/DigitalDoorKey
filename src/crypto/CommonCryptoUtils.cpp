@@ -37,7 +37,7 @@ namespace CommonCryptoUtils
       return {};
     }
 
-    LOG(I, "sk_device: %s", fmt::format("{:02X}", fmt::join(key, "")).c_str());
+    LOG(I, "%s", redactHex("sk_device", key.data(), key.size()).c_str());
 
     mbedtls_gcm_context gcm_ctx;
     mbedtls_gcm_init(&gcm_ctx);
@@ -155,7 +155,7 @@ namespace CommonCryptoUtils
     size_t olen = 0;
     int ecp_write = mbedtls_ecp_point_write_binary(&ephemeral.private_grp, &ephemeral.private_Q, MBEDTLS_ECP_PF_UNCOMPRESSED, &olen, bufPub.data(), bufPub.capacity());
     if(!ecp_write){
-      LOG(D, "Ephemeral Key generated -- private: %s, public: %s", fmt::format("{:02X}", fmt::join(bufPriv, "")).c_str(), fmt::format("{:02X}", fmt::join(bufPub, "")).c_str());
+      LOG(D, "%s", redactHex("Ephemeral public key", bufPub.data(), olen > 8 ? 8 : olen).c_str());
     } else{
       LOG(E, "ecp_write - %d", ecp_write);
       return std::make_tuple(std::vector<uint8_t>(), std::vector<uint8_t>());
@@ -190,9 +190,7 @@ namespace CommonCryptoUtils
     int ecp_write = mbedtls_mpi_write_binary(&point.private_X, X.data(), buffer_size_x);
     if(ecp_write != 0)
       LOG(E, "ecp_write - %d", ecp_write);
-    LOG(V, "PublicKey: %s, X Coordinate: %s", fmt::format("{:02X}", fmt::join(pubKey, "")).c_str(), fmt::format("{:02X}", fmt::join(X, "")).c_str());
-    mbedtls_ecp_group_free(&grp);
-    mbedtls_ecp_point_free(&point);
+    LOG(V, "%s, %s", redactHex("PublicKey", pubKey.data(), pubKey.size()).c_str(), redactHex("X Coordinate", X.data(), X.size()).c_str());
     return X;
   }
 

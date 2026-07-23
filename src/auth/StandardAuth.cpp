@@ -177,7 +177,7 @@ StandardAuthResult DDKStdAuth::attest()
   uint8_t sharedKey[32];
 
   CommonCryptoUtils::get_shared_key(*params.readerEphPrivKey, params.endpointEphPubKey, sharedKey, sizeof(sharedKey));
-  LOG(D, "Shared Key: %s", fmt::format("{:02X}", fmt::join(sharedKey, "")).c_str());
+  LOG_HEX_FMT(D, "Shared Key", sharedKey);
 
   X963KDF kdf(MBEDTLS_MD_SHA256, 32, params.transactionIdentifier.data(), 16);
 
@@ -185,7 +185,7 @@ StandardAuthResult DDKStdAuth::attest()
   std::array<uint8_t,32> skDevice{};
   std::array<uint8_t,32> skReader{};
   kdf.derive(sharedKey, sizeof(sharedKey), derivedKey.data());
-  LOG(D, "X963KDF Derived Key: %s", fmt::format("{:02X}", fmt::join(derivedKey, "")).c_str());
+  LOG_HEX_FMT(D, "X963KDF Derived Key", derivedKey);
   if (params.type == kHomeKey) {
     Auth1_keying_material(derivedKey, HK_CTX_PERSISTENT_ASTR, persistentKey);
     Auth1_keying_material(derivedKey, HK_CTX_VOLATILE_ASTR, volatileKey);
@@ -231,8 +231,8 @@ StandardAuthResult DDKStdAuth::attest()
     LOG(I, "Exchange SK Device (32 bytes): %s",
         fmt::format("{:02X}", fmt::join(skDevice, "")).c_str());
   }
-  LOG(D, "Persistent Key: %s", fmt::format("{:02X}", fmt::join(persistentKey, "")).c_str());
-  LOG(I, "Volatile Key: %s", fmt::format("{:02X}", fmt::join(volatileKey, "")).c_str());
+  LOG_HEX_FMT(D, "Persistent Key", persistentKey);
+  LOG_HEX_FMT(I, "Volatile Key", volatileKey);
   std::unique_ptr<DigitalKeySecureContext> context;
   if (params.type == kHomeKey) {
     context = std::make_unique<DigitalKeySecureContext>(volatileKey);
@@ -254,8 +254,8 @@ StandardAuthResult DDKStdAuth::attest()
       std::vector<uint8_t> signature = decryptedTlv.find(0x9E)->value;
       if (params.type == kHomeKey) {
         std::vector<uint8_t> device_identifier = decryptedTlv.find(0x4E)->value;
-        LOG(D, "Device Identifier: %s", fmt::format("{:02X}", fmt::join(device_identifier, "")).c_str());
-        LOG(D, "Signature: %s", fmt::format("{:02X}", fmt::join(signature, "")).c_str());
+        LOG_HEX_FMT(D, "Device Identifier", device_identifier);
+        LOG_HEX_FMT(D, "Signature", signature);
         if (device_identifier.empty())
         {
           LOG(E, "TLV DATA INVALID!");
@@ -324,7 +324,7 @@ StandardAuthResult DDKStdAuth::attest()
 
         mbedtls_md(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), verification_hash_input_material.data(), verification_hash_input_material.size(), hash);
 
-        LOG(D, "verification_hash_input_material: %s", fmt::format("{:02X}", fmt::join(hash, "")).c_str());
+        LOG_HEX_FMT(D, "verification_hash_input_material", hash);
         mbedtls_mpi r;
         mbedtls_mpi s;
 

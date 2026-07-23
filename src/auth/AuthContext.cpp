@@ -24,10 +24,10 @@ std::vector<uint8_t> DDKAuthenticationContext::getHashIdentifier(const std::vect
   LOG(V, "Key: %s, Length: %d", fmt::format("{:02X}", fmt::join(key, "")).c_str(), key.size());
   std::vector<unsigned char> hashable;
   hashable.insert(hashable.end(), key.begin(), key.end());
-  LOG(V, "Hashable: %s", fmt::format("{:02X}", fmt::join(hashable, "")).c_str());
+  LOG_HEX_FMT(V, "Hashable", hashable);
   std::vector<uint8_t> hash(32);
   mbedtls_sha1(&hashable.front(), hashable.size(), hash.data());
-  LOG(V, "HashIdentifier: %s", fmt::format("{:02X}", fmt::join(hash, "")).c_str());
+  LOG_HEX_FMT(V, "HashIdentifier", hash);
   return hash;
 }
 
@@ -56,7 +56,7 @@ std::vector<uint8_t> DDKAuthenticationContext::commandFlow(CommandFlowStatus sta
       0x42, 0x01, 0x01
   };
 
-    LOG(I, "Aliro Control Flow APDU: %s", fmt::format("{:02X}", fmt::join(apdu, "")).c_str());
+    LOG_HEX_FMT(I, "Aliro Control Flow APDU", apdu);
     nfc(apdu, cmdFlowRes, false);
   }
   return cmdFlowRes;
@@ -223,7 +223,7 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
           persistentKey = stdAuth.shared_secret;
           foundEndpoint->endpoint_prst_k.clear();
           foundEndpoint->endpoint_prst_k.insert(foundEndpoint->endpoint_prst_k.begin(), persistentKey.begin(), persistentKey.end());
-          LOG(V, "New Persistent Key: %s", fmt::format("{:02X}", fmt::join(foundEndpoint->endpoint_prst_k, "")).c_str());
+          LOG_HEX_FMT(V, "New Persistent Key", foundEndpoint->endpoint_prst_k);
         }
       }
       if ((stdAuth.flow == kFlowNext || hkFlow == kFlowATTESTATION) && type != kAliro) {
@@ -249,7 +249,7 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
             foundEndpoint = &(*foundIssuer->endpoints.emplace(foundIssuer->endpoints.end(),endpoint));
           }
           if(foundEndpoint != nullptr){
-            LOG_HEX_DATA(V, "New Persistent Key", foundEndpoint->endpoint_prst_k);
+            LOG_HEX_FMT(V, "New Persistent Key", foundEndpoint->endpoint_prst_k);
             LOG(D, "Endpoint %s Authenticated via ATTESTATION Flow", fmt::format("{:02X}", fmt::join(foundEndpoint->endpoint_id, "")).c_str());
           }
         }

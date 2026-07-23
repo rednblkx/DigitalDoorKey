@@ -20,9 +20,9 @@ const std::array<uint8_t, 4> ENDPOINT_MODE = {0x00, 0x00, 0x00, 0x01};
 
 ISO18013SecureContext::ISO18013SecureContext(const std::vector<uint8_t> &sharedSecret, const std::vector<uint8_t> &salt, size_t keyLength)
 {
-    LOG(V, "Shared Secret: %s", fmt::format("{:02X}", fmt::join(sharedSecret, "")).c_str());
-    LOG(V, "Salt: %s", fmt::format("{:02X}", fmt::join(salt, "")).c_str());
-    LOG(V, "Key Length: %d", keyLength);
+    LOG(V, "%s", redactHex("Shared Secret", sharedSecret.data(), sharedSecret.size()).c_str());
+    LOG(V, "%s", redactHex("Salt", salt.data(), salt.size()).c_str());
+    LOG(V, "Key Length: %d", (int)keyLength);
     this->readerCounter = 1;
     this->endpointCounter = 1;
     this->keyLength = keyLength;
@@ -35,8 +35,8 @@ ISO18013SecureContext::ISO18013SecureContext(const std::vector<uint8_t> &sharedS
                             ENDPOINT_CONTEXT.data(), ENDPOINT_CONTEXT.size(),
                             outEndpoint.data(), keyLength);
 
-    LOG(V, "READER Key: %s", fmt::format("{:02X}", fmt::join(outReader, "")).c_str());
-    LOG(V, "ENDPOINT Key: %s", fmt::format("{:02X}", fmt::join(outEndpoint, "")).c_str());
+    LOG(V, "%s", redactHex("READER Key", outReader.data(), outReader.size()).c_str());
+    LOG(V, "%s", redactHex("ENDPOINT Key", outEndpoint.data(), outEndpoint.size()).c_str());
     if(!ret1){
         this->readerKey.insert(this->readerKey.begin(), outReader.begin(), outReader.end());
     } else {
@@ -99,7 +99,7 @@ std::vector<uint8_t> ISO18013SecureContext::encryptMessageToEndpoint(const std::
         return std::vector<unsigned char>();
     }
 
-    LOG(D, "CIPHERTEXT LEN: %d DATA: %s", ciphertext.size(), fmt::format("{:02X}", fmt::join(ciphertext, "")).c_str());
+    LOG_HEX_FMT(V, "CIPHERTEXT", ciphertext);
     CborEncoder cipher;
     std::vector<uint8_t> cipherBuf(ciphertext.size() + 16);
     cbor_encoder_init(&cipher, cipherBuf.data(), ciphertext.size() + 16, 0);
@@ -110,7 +110,7 @@ std::vector<uint8_t> ISO18013SecureContext::encryptMessageToEndpoint(const std::
     cbor_encoder_close_container(&cipher, &cipherMap);
     readerCounter++;
 
-    LOG(D, "CBOR LEN: %d DATA: %s", cipherBuf.size(), fmt::format("{:02X}", fmt::join(cipherBuf, "")).c_str());
+    LOG_HEX_FMT(V, "CBOR CIPHER", cipherBuf);
 
     return cipherBuf;
 }
@@ -195,7 +195,7 @@ std::vector<uint8_t> ISO18013SecureContext::decryptMessageFromEndpoint(const std
 
     endpointCounter++;
 
-    LOG(D, "PLAINTEXT LEN: %d DATA: %s", plaintext.size(), fmt::format("{:02X}", fmt::join(plaintext, "")).c_str());
+    LOG_HEX_FMT(V, "PLAINTEXT", plaintext);
 
     return plaintext;
 }

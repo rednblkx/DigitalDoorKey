@@ -54,7 +54,7 @@ void DDKFastAuth::Auth0_keying_material(const char *context, const std::vector<u
   if (params.type == kHomeKey) {
     dataMaterial.insert(dataMaterial.end(), std::make_move_iterator(params.endpointEphX.begin()), std::make_move_iterator(params.endpointEphX.end()));
   }
-  LOG(D, "Auth0 HKDF Material: %s", fmt::format("{:02X}", fmt::join(dataMaterial, "")).c_str());
+  LOG_HEX_FMT(D, "Auth0 HKDF Material", dataMaterial);
   int ret = 0;
   if (params.type == kHomeKey) {
     ret = mbedtls_hkdf(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), NULL, 0, keyingMaterial.data(),
@@ -92,14 +92,14 @@ std::tuple<hkIssuer_t *, hkEndpoint_t *> DDKFastAuth::find_endpoint_by_cryptogra
       LOG(V, "Endpoint: %s, Persistent Key: %s", fmt::format("{:02X}", fmt::join(endpoint.endpoint_id, "")).c_str(), fmt::format("{:02X}", fmt::join(endpoint.endpoint_prst_k, "")).c_str());
       std::vector<uint8_t> hkdf(params.type == kHomeKey ? 58 : 160);
       Auth0_keying_material("VolatileFast", endpoint.endpoint_pk_x, endpoint.endpoint_prst_k, hkdf.data(), hkdf.size());
-      LOG(V, "HKDF Derived Key: %s", fmt::format("{:02X}", fmt::join(hkdf, "")).c_str());
+      LOG_HEX_FMT(V, "HKDF Derived Key", hkdf);
       if (params.type == kAliro) {
         std::array<uint8_t,32> sk{};
         std::copy_n(hkdf.data(), 32, sk.data());
-        LOG(D, "SK: %s", fmt::format("{:02X}", fmt::join(sk, "")).c_str());
+        LOG_HEX_FMT(D, "SK", sk);
         auto plaintext = CommonCryptoUtils::decryptAesGcm(cryptogram, sk, {0,0,0,0,0,0,0,0,0,0,0,0});
         if (!plaintext.empty()) {
-          LOG(D, "Decrypted Cryptogram: %s", fmt::format("{:02X}", fmt::join(plaintext, "")).c_str());
+          LOG_HEX_FMT(D, "Decrypted Cryptogram", plaintext);
           TLV8 decryptedTlv;
           decryptedTlv.parse(plaintext.data(), plaintext.size());
           auto identifier = decryptedTlv.find(0x5E);
