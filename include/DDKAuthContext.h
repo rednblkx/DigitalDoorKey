@@ -11,7 +11,7 @@
 struct AuthContextResult {
     std::vector<uint8_t> issuer_id;
     std::vector<uint8_t> endpoint_id;
-    KeyFlow flow;
+    KeyFlow flow = kFlowFailed;
 };
 
 class DDKAuthenticationContext
