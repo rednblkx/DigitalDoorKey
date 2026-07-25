@@ -3,13 +3,12 @@
 #include "AuthResults.hpp"
 #include "CommonCryptoUtils.h"
 #include "DDKReaderData.h"
-#include "fmt/ranges.h"
 #include "FastAuth.h"
 #include "StandardAuth.h"
 #include "AttestationAuth.h"
 #include "AuthParams.h"
 #include "simple_tlv.hpp"
-#include "logging.h"
+#include "DDKLogging.h"
 #if defined(CONFIG_IDF_CMAKE)
 #include <esp_random.h>
 #else 
@@ -24,10 +23,10 @@ std::vector<uint8_t> DDKAuthenticationContext::getHashIdentifier(const std::vect
   LOG(V, "%s", redactHex("Key", key).c_str());
   std::vector<unsigned char> hashable;
   hashable.insert(hashable.end(), key.begin(), key.end());
-  LOG_HEX_FMT(V, "Hashable", hashable);
+  LOG_HEX(V, "Hashable", hashable);
   std::vector<uint8_t> hash(32);
   mbedtls_sha1(&hashable.front(), hashable.size(), hash.data());
-  LOG_HEX_FMT(V, "HashIdentifier", hash);
+  LOG_HEX(V, "HashIdentifier", hash);
   return hash;
 }
 
@@ -56,7 +55,7 @@ std::vector<uint8_t> DDKAuthenticationContext::commandFlow(CommandFlowStatus sta
       0x42, 0x01, 0x01
   };
 
-    LOG_HEX_FMT(I, "Aliro Control Flow APDU", apdu);
+    LOG_HEX(I, "Aliro Control Flow APDU", apdu);
     nfc(apdu, cmdFlowRes, false);
   }
   return cmdFlowRes;
@@ -223,7 +222,7 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
           persistentKey = stdAuth.shared_secret;
           foundEndpoint->endpoint_prst_k.clear();
           foundEndpoint->endpoint_prst_k.insert(foundEndpoint->endpoint_prst_k.begin(), persistentKey.begin(), persistentKey.end());
-          LOG_HEX_FMT(V, "New Persistent Key", foundEndpoint->endpoint_prst_k);
+          LOG_HEX(V, "New Persistent Key", foundEndpoint->endpoint_prst_k);
         }
       }
       if ((stdAuth.flow == kFlowNext || hkFlow == kFlowATTESTATION) && type != kAliro) {
@@ -249,7 +248,7 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
             foundEndpoint = &(*foundIssuer->endpoints.emplace(foundIssuer->endpoints.end(),endpoint));
           }
           if(foundEndpoint != nullptr){
-            LOG_HEX_FMT(V, "New Persistent Key", foundEndpoint->endpoint_prst_k);
+            LOG_HEX(V, "New Persistent Key", foundEndpoint->endpoint_prst_k);
             LOG(D, "Endpoint %s Authenticated via ATTESTATION Flow", redactHex("", foundEndpoint->endpoint_id.data(), foundEndpoint->endpoint_id.size()).c_str());
           }
         }

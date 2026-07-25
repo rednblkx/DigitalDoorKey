@@ -1,11 +1,10 @@
 #include "AttestationAuth.h"
 #include "AuthResults.hpp"
-#include "fmt/ranges.h"
 #include "ndef.h"
 #include "simple_tlv.hpp"
 #include "TLV8.hpp"
 #include "ISO18013SecureContext.h"
-#include "logging.h"
+#include "DDKLogging.h"
 #include <cstdint>
 #if defined(CONFIG_IDF_CMAKE)
 #include <esp_random.h>
@@ -54,7 +53,7 @@ std::vector<unsigned char> DDKAttestationAuth::attestation_salt(std::vector<unsi
   size_t rootSize = cbor_encoder_get_buffer_size(&root, buf);
   LOG(D, "NDEF CBOR");
 
-  LOG_HEX_FMT(D, "CBOR MATERIAL DATA", std::vector(buf, buf + rootSize));
+  LOG_HEX(D, "CBOR MATERIAL DATA", std::vector(buf, buf + rootSize));
 
   std::vector<uint8_t> salt(32);
   int shaRet = mbedtls_sha256(buf, rootSize, salt.data(), false);
@@ -65,7 +64,7 @@ std::vector<unsigned char> DDKAttestationAuth::attestation_salt(std::vector<unsi
       return std::vector<unsigned char>();
   }
 
-  LOG_HEX_FMT(D, "ATTESTATION SALT", salt);
+  LOG_HEX(D, "ATTESTATION SALT", salt);
 
   return salt;
 }
@@ -169,7 +168,7 @@ std::vector<unsigned char> DDKAttestationAuth::envelope2Cmd(std::vector<uint8_t>
   #endif
   auto encrypted = secureCtx.encryptMessageToEndpoint(std::vector<uint8_t>(docBuf, docBuf + docSize));
   if(encrypted.size() > 0){
-    LOG_HEX_FMT(D, "ENC DATA", encrypted);
+    LOG_HEX(D, "ENC DATA", encrypted);
 
     auto tlv = simple_tlv(0x53, encrypted);
 
@@ -347,7 +346,7 @@ std::tuple<hkIssuer_t*, std::vector<uint8_t>> DDKAttestationAuth::verify(std::ve
                         LOG(E, "Failed to copy issuerId value.");
                         break;
                     }
-                    LOG_HEX_FMT(D, "Extracted issuerId", issuerId);
+                    LOG_HEX(D, "Extracted issuerId", issuerId);
                 }
             }
             if (cbor_value_at_end(&unprotected_headers)) break;
@@ -454,7 +453,7 @@ std::tuple<hkIssuer_t*, std::vector<uint8_t>> DDKAttestationAuth::verify(std::ve
         // --- Verification Logic ---
         for (auto &&issuer : params.issuers) {
           if (std::equal(issuer.issuer_id.begin(), issuer.issuer_id.end(), issuerId.begin())) {
-            LOG_HEX_FMT(D, "Found matching Issuer", issuer.issuer_id);
+            LOG_HEX(D, "Found matching Issuer", issuer.issuer_id);
             foundIssuer = &issuer;
           }
         }
@@ -473,7 +472,7 @@ std::tuple<hkIssuer_t*, std::vector<uint8_t>> DDKAttestationAuth::verify(std::ve
           size_t package_size = cbor_encoder_get_buffer_size(&package, packageBuf.data());
           packageBuf.resize(package_size);
           LOG(D, "Verifying signature against package of size %d", package_size);
-          LOG_HEX_FMT(V, "SIGNED PACKAGE", packageBuf);
+          LOG_HEX(V, "SIGNED PACKAGE", packageBuf);
 
           int res = crypto_sign_ed25519_verify_detached(signature.data(), packageBuf.data(), package_size, foundIssuer->issuer_pk.data());
           if (res == 0) {
@@ -482,7 +481,7 @@ std::tuple<hkIssuer_t*, std::vector<uint8_t>> DDKAttestationAuth::verify(std::ve
           }
           LOG(E, "Failed to verify attestation signature! Result code: %d", res);
         } else {
-            LOG_HEX_FMT(E, "No matching issuer found for issuerId", issuerId);
+            LOG_HEX(E, "No matching issuer found for issuerId", issuerId);
         }
 
     } while(0);
@@ -504,11 +503,11 @@ AttestationResult DDKAttestationAuth::attest()
   std::vector<uint8_t> attComm{0x0};
   attComm.reserve(opAttTlv.size() + 1);
   attComm.insert(attComm.begin() + 1, opAttTlv.begin(), opAttTlv.end());
-  LOG_HEX_FMT(D, "attComm", attComm);
+  LOG_HEX(D, "attComm", attComm);
   auto encryptedCmd = params.context->encrypt_command(attComm.data(), attComm.size());
 
-  LOG_HEX_FMT(V, "encrypted_command", std::get<0>(encryptedCmd));
-  LOG_HEX_FMT(V, "calculated_rmac", std::get<1>(encryptedCmd));
+  LOG_HEX(V, "encrypted_command", std::get<0>(encryptedCmd));
+  LOG_HEX(V, "calculated_rmac", std::get<1>(encryptedCmd));
   std::vector<uint8_t> xchApdu = {0x84, 0xc9, 0x0, 0x0, (uint8_t)std::get<0>(encryptedCmd).size()};
   xchApdu.reserve(std::get<0>(encryptedCmd).size() + 5);
   xchApdu.insert(xchApdu.end(), std::get<0>(encryptedCmd).begin(), std::get<0>(encryptedCmd).end());

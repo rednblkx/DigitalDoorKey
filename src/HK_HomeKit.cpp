@@ -1,14 +1,12 @@
 #include <HK_HomeKit.h>
 #include "CommonCryptoUtils.h"
 #include "TLV8.hpp"
-#include "logging.h"
+#include "DDKLogging.h"
 #include <mbedtls/ecp.h>
 #include <mbedtls/sha256.h>
 #include <mbedtls/sha1.h>
 #include <mbedtls/error.h>
 #include <vector>
-#include "fmt/base.h"
-#include <fmt/ranges.h>
 
 std::mutex HK_HomeKit::provision_mutex;
 
@@ -167,7 +165,7 @@ std::tuple<std::vector<uint8_t>, int> HK_HomeKit::provision_device_cred(std::vec
   if (issuerIdentifier.size() > 0) {
     for (auto& issuer : readerData.issuers) {
       if (CommonCryptoUtils::constant_time_compare(issuer.issuer_id, issuerIdentifier)) {
-        LOG_HEX_FMT(D, "Found issuer - ID", issuer.issuer_id);
+        LOG_HEX(D, "Found issuer - ID", issuer.issuer_id);
         foundIssuer = &issuer;
       }
     }
@@ -184,7 +182,7 @@ std::tuple<std::vector<uint8_t>, int> HK_HomeKit::provision_device_cred(std::vec
       std::vector<uint8_t> endpointId(hash.begin(), hash.begin() + 6);
       for (auto& endpoint : foundIssuer->endpoints) {
         if (CommonCryptoUtils::constant_time_compare(endpoint.endpoint_id, endpointId)) {
-          LOG_HEX_FMT(D, "Found endpoint - ID", endpoint.endpoint_id);
+          LOG_HEX(D, "Found endpoint - ID", endpoint.endpoint_id);
           foundEndpoint = &endpoint;
         }
       }
@@ -210,13 +208,13 @@ std::tuple<std::vector<uint8_t>, int> HK_HomeKit::provision_device_cred(std::vec
         return std::make_tuple(foundIssuer->issuer_id, SUCCESS);
       }
       else {
-        LOG_HEX_FMT(D, "Endpoint already exists - ID", foundEndpoint->endpoint_id);
+        LOG_HEX(D, "Endpoint already exists - ID", foundEndpoint->endpoint_id);
         save_cb(readerData);
         return std::make_tuple(issuerIdentifier, DUPLICATE);
       }
     }
     else {
-      LOG_HEX_FMT(D, "Issuer does not exist - ID", issuerIdentifier);
+      LOG_HEX(D, "Issuer does not exist - ID", issuerIdentifier);
       save_cb(readerData);
       return std::make_tuple(issuerIdentifier, DOES_NOT_EXIST);
     }

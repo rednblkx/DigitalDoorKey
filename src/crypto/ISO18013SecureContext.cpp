@@ -3,12 +3,11 @@
  */
 
 #include "CommonCryptoUtils.h"
-#include "fmt/ranges.h"
 #include <ISO18013SecureContext.h>
 #include <mbedtls/hkdf.h>
 #include <mbedtls/gcm.h>
 #include <mbedtls/error.h>
-#include <logging.h>
+#include "DDKLogging.h"
 #include <cbor.h>
 #include <vector>
 #include <array>
@@ -104,7 +103,7 @@ std::vector<uint8_t> ISO18013SecureContext::encryptMessageToEndpoint(const std::
         return std::vector<unsigned char>();
     }
 
-    LOG_HEX_FMT(V, "CIPHERTEXT", ciphertext);
+    LOG_HEX(V, "CIPHERTEXT", ciphertext);
     CborEncoder cipher;
     std::vector<uint8_t> cipherBuf(ciphertext.size() + 16);
     cbor_encoder_init(&cipher, cipherBuf.data(), ciphertext.size() + 16, 0);
@@ -115,7 +114,7 @@ std::vector<uint8_t> ISO18013SecureContext::encryptMessageToEndpoint(const std::
     cbor_encoder_close_container(&cipher, &cipherMap);
     readerCounter++;
 
-    LOG_HEX_FMT(V, "CBOR CIPHER", cipherBuf);
+    LOG_HEX(V, "CBOR CIPHER", cipherBuf);
 
     return cipherBuf;
 }
@@ -197,7 +196,7 @@ std::vector<uint8_t> ISO18013SecureContext::decryptMessageFromEndpoint(const std
 
     endpointCounter++;
 
-    LOG_HEX_FMT(V, "PLAINTEXT", plaintext);
+    LOG_HEX(V, "PLAINTEXT", plaintext);
 
     return plaintext;
 }

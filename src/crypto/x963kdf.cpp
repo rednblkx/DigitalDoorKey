@@ -5,7 +5,7 @@
 #include "x963kdf.h"
 #include <mbedtls/cmac.h>
 #include <cstdint>
-#include "logging.h"
+#include "DDKLogging.h"
 #if defined(CONFIG_IDF_CMAKE)
 #include <esp_log.h>
 #endif

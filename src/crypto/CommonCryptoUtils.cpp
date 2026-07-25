@@ -10,7 +10,7 @@
 #include <mbedtls/ecdsa.h>
 #include <mbedtls/error.h>
 #include <mbedtls/platform_util.h>
-#include <logging.h>
+#include "DDKLogging.h"
 
 #include <mbedtls/gcm.h>
 #if defined(CONFIG_IDF_CMAKE)
@@ -165,7 +165,7 @@ namespace CommonCryptoUtils
     size_t olen = 0;
     int ecp_write = mbedtls_ecp_point_write_binary(&ephemeral.kp.MBEDTLS_PRIVATE(grp), &ephemeral.kp.MBEDTLS_PRIVATE(Q), MBEDTLS_ECP_PF_UNCOMPRESSED, &olen, bufPub.data(), bufPub.capacity());
     if(!ecp_write){
-      LOG(D, "%s", redactHex("Ephemeral public key", bufPub.data(), olen > 8 ? 8 : olen).c_str());
+      LOG(D, "%s", redactHex("Ephemeral public key", bufPub.data(), olen).c_str());
     } else{
       LOG(E, "ecp_write - %d", ecp_write);
       return std::make_tuple(std::vector<uint8_t>(), std::vector<uint8_t>());

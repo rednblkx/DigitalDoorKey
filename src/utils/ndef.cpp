@@ -5,8 +5,7 @@
 #include "ndef.h"
 #include <string.h>
 #include <vector>
-#include "fmt/ranges.h"
-#include "logging.h"
+#include "DDKLogging.h"
 
 NDEFRecord::NDEFRecord() {
   this->id.assign(1, '\0');
@@ -72,7 +71,7 @@ std::vector<unsigned char> NDEFMessage::pack()
   }
   this->packedData.clear();
   this->packedData.insert(this->packedData.begin(), result, result + olen);
-  LOG(D, "NDEF MSG PACKED - LENGTH: %d, DATA: %s", packedData.size(), fmt::format("{:02X}", fmt::join(packedData, "")).c_str());
+  LOG(D, "NDEF MSG PACKED - LENGTH: %d, DATA: %s", packedData.size(), redactHex("", packedData).c_str());
   return this->packedData;
 }
 
@@ -129,7 +128,7 @@ std::vector<NDEFRecord> NDEFMessage::unpack(){
     payload_vec.push_back('\0');
     i += payload_length[0];
     
-    LOG(D, "NDEF RECORD ID: %s, TNF: %d, TYPE: %s, PAYLOAD: %s", fmt::format("{:02X}", fmt::join(id_vec, "")).c_str(), (int)tnf, fmt::format("{:02X}", fmt::join(type_vec, "")).c_str(), fmt::format("{:02X}", fmt::join(payload_vec, "")).c_str());
+    LOG(D, "NDEF RECORD ID: %s, TNF: %d, TYPE: %s, PAYLOAD: %s", redactHex("", id_vec).c_str(), (int)tnf, redactHex("", type_vec).c_str(), redactHex("", payload_vec).c_str());
     records.emplace_back(id_vec, tnf, type_vec, payload_vec);
   }
   this->records.insert(this->records.begin(), records.data(), records.data() + records.size());

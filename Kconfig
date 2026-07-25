@@ -1,0 +1,11 @@
+menu "Digital Door Key Configuration"
+
+    config DDK_LOG_FULL_HEX
+        bool "Enable full hex logging for sensitive data"
+        default n
+        help
+            If enabled, DDK_LOG_HEX will output the full binary data instead of redacting it.
+            WARNING: This may leak sensitive cryptographic keys (e.g., HomeKey/Aliro keys) 
+            to the serial log. Use only for local development and debugging.
+
+endmenu

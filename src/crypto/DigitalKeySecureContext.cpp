@@ -3,7 +3,7 @@
  */
 
 #include "DigitalKeySecureContext.h"
-#include "logging.h"
+#include "DDKLogging.h"
 #include <cstdint>
 #include <cstring>
 #include <mbedtls/aes.h>
@@ -237,8 +237,8 @@ std::vector<uint8_t> DigitalKeySecureContext::decrypt_response(const unsigned ch
         size_t input_dataSize = 16 + (dataSize - 8);
         std::vector<uint8_t> input_data = concatenate_arrays(mac_chaining_value, data, 16, dataSize - 8);
         int cmac_status = aes_cmac(krmac, input_data.data(), input_dataSize, calculated_rmac.data());
-        LOG_HEX_FMT(V, "recv_rmac", std::vector(data + (dataSize - 8),(data + (dataSize - 8)) + 8) );
-        LOG_HEX_FMT(V, "calculated_rmac", calculated_rmac);
+        LOG_HEX(V, "recv_rmac", std::vector(data + (dataSize - 8),(data + (dataSize - 8)) + 8) );
+        LOG_HEX(V, "calculated_rmac", calculated_rmac);
         if(cmac_status) return {};
 
         if(!CommonCryptoUtils::constant_time_compare(data + (dataSize - 8), calculated_rmac.data(), 8)){
@@ -361,7 +361,7 @@ std::vector<uint8_t> DigitalKeySecureContext::decrypt(const unsigned char* ciphe
     int encrypt_status = encrypt_aes_cbc(key, iv.data(), input_data.data(), input_data_size, icv.data());
     if(encrypt_status) return std::vector<uint8_t>();
 
-    LOG_HEX_FMT(V, "ICV", icv);
+    LOG_HEX(V, "ICV", icv);
 
     std::vector<uint8_t> dec(cipherTextLen);
 
@@ -370,7 +370,7 @@ std::vector<uint8_t> DigitalKeySecureContext::decrypt(const unsigned char* ciphe
 
     if(decrypt_status) return std::vector<uint8_t>();
 
-    LOG_HEX_FMT(V, "decryted", dec);
+    LOG_HEX(V, "decryted", dec);
 
     // Unpad plaintext
     int padding_index = unpad_mode_3(dec.data(), cipherTextLen);

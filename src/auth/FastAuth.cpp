@@ -1,7 +1,6 @@
 #include "FastAuth.h"
 #include "AuthResults.hpp"
-#include "fmt/ranges.h"
-#include "logging.h"
+#include "DDKLogging.h"
 #include <mbedtls/hkdf.h>
 #include <vector>
 
@@ -54,7 +53,7 @@ void DDKFastAuth::Auth0_keying_material(const char *context, const std::vector<u
   if (params.type == kHomeKey) {
     dataMaterial.insert(dataMaterial.end(), std::make_move_iterator(params.endpointEphX.begin()), std::make_move_iterator(params.endpointEphX.end()));
   }
-  LOG_HEX_FMT(D, "Auth0 HKDF Material", dataMaterial);
+  LOG_HEX(D, "Auth0 HKDF Material", dataMaterial);
   int ret = 0;
   if (params.type == kHomeKey) {
     ret = mbedtls_hkdf(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), NULL, 0, keyingMaterial.data(),
@@ -92,14 +91,14 @@ std::tuple<hkIssuer_t *, hkEndpoint_t *> DDKFastAuth::find_endpoint_by_cryptogra
       LOG(V, "Endpoint: %s, Persistent Key: %s", redactHex("", endpoint.endpoint_id.data(), endpoint.endpoint_id.size()).c_str(), redactHex("PK", endpoint.endpoint_prst_k.data(), endpoint.endpoint_prst_k.size()).c_str());
       std::vector<uint8_t> hkdf(params.type == kHomeKey ? 58 : 160);
       Auth0_keying_material("VolatileFast", endpoint.endpoint_pk_x, endpoint.endpoint_prst_k, hkdf.data(), hkdf.size());
-      LOG_HEX_FMT(V, "HKDF Derived Key", hkdf);
+      LOG_HEX(V, "HKDF Derived Key", hkdf);
       if (params.type == kAliro) {
         std::array<uint8_t,32> sk{};
         std::copy_n(hkdf.data(), 32, sk.data());
-        LOG_HEX_FMT(D, "SK", sk);
+        LOG_HEX(D, "SK", sk);
         auto plaintext = CommonCryptoUtils::decryptAesGcm(cryptogram, sk, {0,0,0,0,0,0,0,0,0,0,0,0});
         if (!plaintext.empty()) {
-          LOG_HEX_FMT(D, "Decrypted Cryptogram", plaintext);
+          LOG_HEX(D, "Decrypted Cryptogram", plaintext);
           TLV8 decryptedTlv;
           decryptedTlv.parse(plaintext.data(), plaintext.size());
           auto idItem = decryptedTlv.expect(0x5E);
