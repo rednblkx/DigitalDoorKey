@@ -1,4 +1,5 @@
 #pragma once
+#include "SecureBuffer.h"
 #include "DDKReaderData.h"
 #include <cstdint>
 #include <functional>
@@ -19,16 +20,16 @@ private:
   const char *TAG = "HKAuthCtx";
   DigitalKeyType type;
   readerData_t &readerData;
-  std::vector<uint8_t> readerEphX;
-  std::vector<uint8_t> readerEphPrivKey;
-  std::vector<uint8_t> readerEphPubKey;
-  std::vector<uint8_t> endpointEphPubKey;
-  std::vector<uint8_t> endpointEphX;
+  SecureBuffer<32> readerEphX;
+  SecureBuffer<32> readerEphPrivKey;
+  SecureBuffer<65> readerEphPubKey;
+  SecureBuffer<65> endpointEphPubKey;
+  SecureBuffer<32> endpointEphX;
   const std::function<bool(std::vector<uint8_t>&, std::vector<uint8_t>&, bool)> &nfc;
   const std::function<void(const readerData_t&)> &save_cb;
-  std::vector<uint8_t> transactionIdentifier;
+  SecureBuffer<16> transactionIdentifier;
   std::vector<uint8_t> readerIdentifier;
-  std::vector<uint8_t> getHashIdentifier(const std::vector<uint8_t>& key);
+  std::vector<uint8_t> getHashIdentifier(const std::array<uint8_t,65>& key);
   std::vector<uint8_t> commandFlow(CommandFlowStatus status);
 	std::array<uint8_t,2> protocolVersion;
 	std::array<uint8_t,2> flags{0x01, 0x01};

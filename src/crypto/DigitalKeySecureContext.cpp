@@ -10,6 +10,7 @@
 #include <mbedtls/cmac.h>
 
 #include "CommonCryptoUtils.h"
+#include "SecureBuffer.h"
 
 /**
  * The function `pad_mode_3` pads a given message with a specified pad byte and block size, and returns
@@ -177,10 +178,10 @@ DigitalKeySecureContext::DigitalKeySecureContext(const std::array<uint8_t,32> *s
 }
 
 DigitalKeySecureContext::~DigitalKeySecureContext() {
-    CommonCryptoUtils::secure_zero(kenc, sizeof(kenc));
-    CommonCryptoUtils::secure_zero(kmac, sizeof(kmac));
-    CommonCryptoUtils::secure_zero(krmac, sizeof(krmac));
-    CommonCryptoUtils::secure_zero(mac_chaining_value, sizeof(mac_chaining_value));
+    secure_zero(kenc, sizeof(kenc));
+    secure_zero(kmac, sizeof(kmac));
+    secure_zero(krmac, sizeof(krmac));
+    secure_zero(mac_chaining_value, sizeof(mac_chaining_value));
 }
 
 

@@ -19,7 +19,7 @@
 #include <chrono>
 #include <TLV8.hpp>
 
-std::vector<uint8_t> DDKAuthenticationContext::getHashIdentifier(const std::vector<uint8_t>& key) {
+std::vector<uint8_t> DDKAuthenticationContext::getHashIdentifier(const std::array<uint8_t,65>& key) {
   LOG(V, "%s", redactHex("Key", key).c_str());
   std::vector<unsigned char> hashable;
   hashable.insert(hashable.end(), key.begin(), key.end());
@@ -72,7 +72,7 @@ std::vector<uint8_t> DDKAuthenticationContext::commandFlow(CommandFlowStatus sta
  * `readerData_t`.
  * @param save_cb Callback to persist the reader data
  */
-DDKAuthenticationContext::DDKAuthenticationContext(DigitalKeyType type, const std::function<bool(std::vector<uint8_t>&, std::vector<uint8_t>&, bool)> &nfc, readerData_t &readerData, const std::function<void(const readerData_t&)> &save_cb) : type(type), readerData(readerData), nfc(nfc), save_cb(save_cb), transactionIdentifier(16)
+DDKAuthenticationContext::DDKAuthenticationContext(DigitalKeyType type, const std::function<bool(std::vector<uint8_t>&, std::vector<uint8_t>&, bool)> &nfc, readerData_t &readerData, const std::function<void(const readerData_t&)> &save_cb) : type(type), readerData(readerData), nfc(nfc), save_cb(save_cb)
 {
   // esp_log_level_set(TAG, ESP_LOG_VERBOSE);
   if (type == DigitalKeyType::kAliro) {
@@ -82,8 +82,8 @@ DDKAuthenticationContext::DDKAuthenticationContext(DigitalKeyType type, const st
   }
   auto startTime = std::chrono::high_resolution_clock::now();
   auto readerEphKey = CommonCryptoUtils::generateEphemeralKey();
-  readerEphPrivKey.swap(std::get<0>(readerEphKey));
-  readerEphPubKey.swap(std::get<1>(readerEphKey));
+  readerEphPrivKey = std::get<0>(readerEphKey);
+  readerEphPubKey = std::get<1>(readerEphKey);
 #if defined(CONFIG_IDF_CMAKE)
   esp_fill_random(transactionIdentifier.data(), 16);
 #else
@@ -122,8 +122,8 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
   fastTlv.reserve(protocolVersion.size() + readerEphPubKey.size() + transactionIdentifier.size() + readerIdentifier.size() + 8); // +8 for TLV overhead
 #if __cplusplus >= 202002L
   if (type == DigitalKeyType::kAliro) {
-    std::ranges::copy(simple_tlv<std::array<uint8_t, 1>>(0x41, {flags[0]}), std::back_inserter(fastTlv));
-    std::ranges::copy(simple_tlv<std::array<uint8_t, 1>>(0x42, {flags[1]}), std::back_inserter(fastTlv));
+    std::ranges::copy(simple_tlv(0x41,flags[0]), std::back_inserter(fastTlv));
+    std::ranges::copy(simple_tlv(0x42, flags[1]), std::back_inserter(fastTlv));
   }
   std::ranges::copy(simple_tlv(0x5C, protocolVersion), std::back_inserter(fastTlv));
   std::ranges::copy(simple_tlv(0x87, readerEphPubKey), std::back_inserter(fastTlv));
@@ -236,12 +236,12 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
           } else {
             hkEndpoint_t endpoint;
             foundIssuer = attestation.issuer;
-            std::vector<uint8_t> devicePubKey = attestation.device_pub_key;
+            std::array<uint8_t,65> devicePubKey = attestation.device_pub_key;
             std::vector<uint8_t> deviceKeyX = CommonCryptoUtils::get_x(attestation.device_pub_key);
             endpoint.endpoint_pk_x = deviceKeyX;
             std::vector<uint8_t> eId = getHashIdentifier(devicePubKey);
             endpoint.endpoint_id = std::vector<uint8_t>{eId.begin(), eId.begin() + 6};
-            endpoint.endpoint_pk = devicePubKey;
+            std::move(devicePubKey.begin(), devicePubKey.end(), endpoint.endpoint_pk.begin());
             persistentKey = stdAuth.shared_secret;
             endpoint.endpoint_prst_k.clear();
             endpoint.endpoint_prst_k.insert(endpoint.endpoint_prst_k.begin(), persistentKey.begin(), persistentKey.end());

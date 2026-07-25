@@ -99,7 +99,7 @@ namespace CommonCryptoUtils
    * stored. It should be allocated with enough space to hold `oLen` bytes.
    * @param oLen oLen is the length of the output buffer (outBuf) where the shared key will be written.
    */
-  void get_shared_key(const std::vector<uint8_t> &key1, const std::vector<uint8_t> &key2, uint8_t *outBuf, size_t oLen)
+  void get_shared_key(const std::array<uint8_t,32> &key1, const std::array<uint8_t,65> &key2, uint8_t *outBuf, size_t oLen)
   {
     EcpGroupGuard grp;
     MpiGuard reader_ephemeral_private_key;
@@ -184,7 +184,7 @@ namespace CommonCryptoUtils
    * 
    * @return a std::vector<uint8_t> object, which contains the X coordinate of the given public key.
    */
-  std::vector<uint8_t> get_x(std::vector<uint8_t> &pubKey)
+  std::vector<uint8_t> get_x(std::array<uint8_t, 65> &pubKey)
   {
     EcpGroupGuard grp;
     EcpPointGuard point;

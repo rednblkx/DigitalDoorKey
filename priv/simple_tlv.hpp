@@ -2,7 +2,7 @@
 #include <cstdint>
 #include <vector>
 template<typename Container>
-std::vector<uint8_t> simple_tlv(const uint8_t tag, Container value) {
+std::vector<uint8_t> simple_tlv(const uint8_t tag, const Container& value) {
 	std::vector<uint8_t> tlv_data;
 	const auto value_length = value.size();
 
@@ -28,4 +28,8 @@ std::vector<uint8_t> simple_tlv(const uint8_t tag, Container value) {
 	std::move(value.begin(), value.end(), std::back_inserter(tlv_data));
 
 	return tlv_data;
+}
+
+inline std::vector<uint8_t> simple_tlv(const uint8_t tag, uint8_t value) {
+    return {tag, 0x01, value};
 }

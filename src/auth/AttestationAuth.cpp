@@ -5,6 +5,7 @@
 #include "TLV8.hpp"
 #include "ISO18013SecureContext.h"
 #include "DDKLogging.h"
+#include <array>
 #include <cstdint>
 #if defined(CONFIG_IDF_CMAKE)
 #include <esp_random.h>
@@ -231,9 +232,9 @@ CborError copy_byte_string(CborValue *value, std::vector<uint8_t> &target) {
 }
 
 
-std::tuple<hkIssuer_t*, std::vector<uint8_t>> DDKAttestationAuth::verify(std::vector<uint8_t>& decryptedCbor) {
+std::tuple<hkIssuer_t*, std::array<uint8_t, 65>> DDKAttestationAuth::verify(std::vector<uint8_t>& decryptedCbor) {
     hkIssuer_t* foundIssuer = nullptr;
-    std::vector<uint8_t> devicePubKey;
+    std::array<uint8_t, 65> devicePubKey;
 
     LOG(D, "Starting attestation verification with %d bytes of CBOR.", decryptedCbor.size());
 
@@ -446,9 +447,9 @@ std::tuple<hkIssuer_t*, std::vector<uint8_t>> DDKAttestationAuth::verify(std::ve
         }
         LOG(D, "Extracted deviceKeyX (size: %d) and deviceKeyY (size: %d)", deviceKeyX.size(), deviceKeyY.size());
 
-        devicePubKey.push_back(0x04);
-        devicePubKey.insert(devicePubKey.end(), std::make_move_iterator(deviceKeyX.begin()), std::make_move_iterator(deviceKeyX.end()));
-        devicePubKey.insert(devicePubKey.end(), std::make_move_iterator(deviceKeyY.begin()), std::make_move_iterator(deviceKeyY.end()));
+        devicePubKey[0] = 0x04;
+        std::move(std::make_move_iterator(deviceKeyX.begin()), std::make_move_iterator(deviceKeyX.end()), devicePubKey.data() + 1);
+        std::move(std::make_move_iterator(deviceKeyY.begin()), std::make_move_iterator(deviceKeyY.end()), devicePubKey.data() + 1);
         
         // --- Verification Logic ---
         for (auto &&issuer : params.issuers) {
@@ -487,7 +488,7 @@ std::tuple<hkIssuer_t*, std::vector<uint8_t>> DDKAttestationAuth::verify(std::ve
     } while(0);
 
     LOG(E, "Attestation verification failed. Returning empty result.");
-    return std::make_tuple(nullptr, std::vector<uint8_t>());
+    return std::make_tuple(nullptr, devicePubKey);
 }
 
 AttestationResult DDKAttestationAuth::attest()
@@ -529,7 +530,7 @@ AttestationResult DDKAttestationAuth::attest()
         {
           auto verify_result = verify(env2DataDec);
           if (std::get<1>(verify_result).size() > 0) {
-            result.device_pub_key = std::get<std::vector<uint8_t>>(verify_result);
+            result.device_pub_key = std::get<std::array<uint8_t,65>>(verify_result);
             result.issuer = std::get<hkIssuer_t*>(verify_result);
             result.flow = kFlowATTESTATION;
             return result;

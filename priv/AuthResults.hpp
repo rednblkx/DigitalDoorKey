@@ -1,5 +1,4 @@
 #pragma once
-#include <vector>
 #include <memory>
 #include <array>
 #include "DDKReaderData.h" 
@@ -14,7 +13,7 @@ class DigitalKeySecureContext;
  */
 struct AttestationResult {
     hkIssuer_t* issuer = nullptr;
-    std::vector<uint8_t> device_pub_key;
+    std::array<uint8_t,65> device_pub_key;
     KeyFlow flow = kFlowFailed;
 
     explicit operator bool() const { return issuer != nullptr; }

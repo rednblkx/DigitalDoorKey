@@ -11,22 +11,6 @@
 
 namespace CommonCryptoUtils {
 
-inline void secure_zero(void* p, size_t len) {
-    if (p && len > 0) mbedtls_platform_zeroize(p, len);
-}
-
-template <size_t N>
-struct SecureBuffer {
-    std::array<uint8_t, N> data{};
-    SecureBuffer() = default;
-    ~SecureBuffer() { secure_zero(data.data(), N); }
-    
-    uint8_t* data_ptr() { return data.data(); }
-    const uint8_t* data_ptr() const { return data.data(); }
-    size_t size() const { return N; }
-};
-
-// --- RAII Guards for mbedtls types ---
 struct GcmGuard {
     mbedtls_gcm_context ctx;
     GcmGuard() { mbedtls_gcm_init(&ctx); }
@@ -80,15 +64,15 @@ std::vector<uint8_t> decryptAesGcm(
 std::tuple<std::vector<uint8_t>, std::vector<uint8_t>> generateEphemeralKey();
 
 void get_shared_key(
-    const std::vector<uint8_t>& priv_key, 
-    const std::vector<uint8_t>& pub_key, 
+    const std::array<uint8_t,32>& priv_key, 
+    const std::array<uint8_t,65>& pub_key, 
     uint8_t* out_buf, 
     size_t out_len
 );
 
 std::vector<uint8_t> signSharedInfo(const uint8_t *data, const size_t dataLen, const uint8_t *key, const size_t keyLen);
 
-std::vector<uint8_t> get_x(std::vector<uint8_t> &pubKey);
+std::vector<uint8_t> get_x(std::array<uint8_t,65> &pubKey);
 
 int esp_rng(void *, uint8_t *buf, size_t len);
 

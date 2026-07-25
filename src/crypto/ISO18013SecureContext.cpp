@@ -11,6 +11,7 @@
 #include <cbor.h>
 #include <vector>
 #include <array>
+#include "SecureBuffer.h"
 
 const std::array<uint8_t, 8> READER_CONTEXT = {'S', 'K', 'R', 'e', 'a', 'd', 'e', 'r'};
 const std::array<uint8_t, 8> ENDPOINT_CONTEXT = {'S', 'K', 'D', 'e', 'v', 'i', 'c', 'e'};
@@ -39,21 +40,21 @@ ISO18013SecureContext::ISO18013SecureContext(const std::vector<uint8_t> &sharedS
     LOG(V, "%s", redactHex("ENDPOINT Key", outEndpoint.data(), outEndpoint.size()).c_str());
     if(!ret1){
         this->readerKey.assign(outReader.begin(), outReader.end());
-        CommonCryptoUtils::secure_zero(outReader.data(), outReader.size());
+        secure_zero(outReader.data(), outReader.size());
     } else {
         LOG(E, "Cannot derive READER Key - %d", ret1);
     }
     if(!ret2){
         this->endpointKey.assign(outEndpoint.begin(), outEndpoint.end());
-        CommonCryptoUtils::secure_zero(outEndpoint.data(), outEndpoint.size());
+        secure_zero(outEndpoint.data(), outEndpoint.size());
     } else {
         LOG(E, "Cannot derive Endpoint Key - %d", ret2);
     }
 }
 
 ISO18013SecureContext::~ISO18013SecureContext() {
-    CommonCryptoUtils::secure_zero(readerKey.data(), readerKey.size());
-    CommonCryptoUtils::secure_zero(endpointKey.data(), endpointKey.size());
+    secure_zero(readerKey.data(), readerKey.size());
+    secure_zero(endpointKey.data(), endpointKey.size());
 }
 
 std::vector<uint8_t> ISO18013SecureContext::getReaderIV() const
