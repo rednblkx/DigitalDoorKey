@@ -56,35 +56,35 @@ void DDKStdAuth::Auth1_keying_material(std::array<uint8_t,32> &keyingMaterial, s
   }
   if (params.type == kAliro) {
     dataMaterial.reserve(params.reader_pk_x.size() + context.size() + params.readerIdentifier.size() + params.version.size() + params.readerEphX.size() + params.transactionIdentifier.size() + params.aliroFCI.size());
-    LOG(I, "%s", redactHex("readerPublicKeyX", params.reader_pk_x).c_str());
+    LOG(D, "%s", redactHex("readerPublicKeyX", params.reader_pk_x).c_str());
     dataMaterial.insert(dataMaterial.end(), params.reader_pk_x.begin(), params.reader_pk_x.end());
 
-    LOG(I, "context: %s", context.data());
+    LOG(D, "context: %s", context.data());
     dataMaterial.insert(dataMaterial.end(), context.begin(), context.end());
 
-    LOG(I, "%s", redactHex("readerIdentifier", params.readerIdentifier).c_str());
+    LOG(D, "%s", redactHex("readerIdentifier", params.readerIdentifier).c_str());
     dataMaterial.insert(dataMaterial.end(), params.readerIdentifier.begin(), params.readerIdentifier.end());
 
-    LOG(I, "transport_type: 0x%02X", 0x5E);
+    LOG(D, "transport_type: 0x%02X", 0x5E);
     dataMaterial.push_back(0x5E);
 
-    LOG(I, "protocol_version TLV: 5C %02X %02X%02X", params.version.size(),
+    LOG(D, "protocol_version TLV: 5C %02X %02X%02X", params.version.size(),
         params.version[0], params.version[1]);
     dataMaterial.push_back(0x5C);
     dataMaterial.push_back(params.version.size());
     dataMaterial.insert(dataMaterial.end(), params.version.begin(), params.version.end());
 
-    LOG(I, "%s", redactHex("readerEphX", params.readerEphX).c_str());
+    LOG(D, "%s", redactHex("readerEphX", params.readerEphX).c_str());
     dataMaterial.insert(dataMaterial.end(), params.readerEphX.begin(), params.readerEphX.end());
 
-    LOG(I, "%s", redactHex("transactionIdentifier", params.transactionIdentifier).c_str());
+    LOG(D, "%s", redactHex("transactionIdentifier", params.transactionIdentifier).c_str());
     dataMaterial.insert(dataMaterial.end(), params.transactionIdentifier.begin(), params.transactionIdentifier.end());
 
-    LOG(I, "transaction_flags: 0x01, transaction_code: 0x01");
+    LOG(D, "transaction_flags: 0x01, transaction_code: 0x01");
     dataMaterial.push_back(params.flags[0]);
     dataMaterial.push_back(params.flags[1]);
 
-    LOG(I, "%s", redactHex("fciProprietaryTemplate", params.aliroFCI).c_str());
+    LOG(D, "%s", redactHex("fciProprietaryTemplate", params.aliroFCI).c_str());
     dataMaterial.push_back(0xA5);
     dataMaterial.push_back(static_cast<uint8_t>(params.aliroFCI.size()));
     dataMaterial.insert(dataMaterial.end(), params.aliroFCI.begin(), params.aliroFCI.end());
@@ -93,7 +93,7 @@ void DDKStdAuth::Auth1_keying_material(std::array<uint8_t,32> &keyingMaterial, s
         LOG(I, "%s", redactHex("ep_pk", *epPkX).c_str());
         dataMaterial.insert(dataMaterial.end(), epPkX->begin(), epPkX->end());
     }
-    LOG(I, "%s", redactHex("HKDF Salt", dataMaterial).c_str());
+    LOG(D, "%s", redactHex("HKDF Salt", dataMaterial).c_str());
     mbedtls_hkdf(
       mbedtls_md_info_from_type(MBEDTLS_MD_SHA256),
       dataMaterial.data(), dataMaterial.size(),
@@ -221,10 +221,10 @@ StandardAuthResult DDKStdAuth::attest()
     //     ble_sk_device.data(), ble_sk_device.size());
 
     LOG(D, "Exchange SK Reader - %s", redactHex("", skReader.data(), 32).c_str());
-    LOG(I, "Exchange SK Device - %s", redactHex("", skDevice.data(), 32).c_str());
+    LOG(D, "Exchange SK Device - %s", redactHex("", skDevice.data(), 32).c_str());
   }
   LOG_HEX(D, "Persistent Key", persistentKey);
-  LOG_HEX(I, "Volatile Key", volatileKey);
+  LOG_HEX(D, "Volatile Key", volatileKey);
   std::unique_ptr<DigitalKeySecureContext> context;
   if (params.type == kHomeKey) {
     context = std::make_unique<DigitalKeySecureContext>(volatileKey);
@@ -280,7 +280,7 @@ StandardAuthResult DDKStdAuth::attest()
                 if (devicePk.size() >= endpoint.endpoint_pk.size() && memcmp(devicePk.data(), endpoint.endpoint_pk.data(), endpoint.endpoint_pk.size()) == 0) {
                   foundIssuer = &issuer;
                   foundEndpoint = &endpoint;
-                  LOG(I, "Found matching endpoint with public key: %s",
+                  LOG(D, "Found matching endpoint with public key: %s",
                       redactHex("", devicePk.data(), devicePk.size()).c_str());
                   epPkX = &endpoint.endpoint_pk_x;
                   break;

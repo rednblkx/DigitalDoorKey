@@ -62,7 +62,7 @@ namespace CommonCryptoUtils
       return {};
     }
 
-    LOG(I, "%s", redactHex("sk_device", key.data(), key.size()).c_str());
+    LOG(D, "%s", redactHex("sk_device", key.data(), key.size()).c_str());
 
     GcmGuard gcm_ctx;
 

@@ -55,7 +55,7 @@ std::vector<uint8_t> DDKAuthenticationContext::commandFlow(CommandFlowStatus sta
       0x42, 0x01, 0x01
   };
 
-    LOG_HEX(I, "Aliro Control Flow APDU", apdu);
+    LOG_HEX(D, "Aliro Control Flow APDU", apdu);
     nfc(apdu, cmdFlowRes, false);
   }
   return cmdFlowRes;
