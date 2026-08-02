@@ -241,7 +241,7 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
             endpoint.endpoint_pk_x = deviceKeyX;
             std::vector<uint8_t> eId = getHashIdentifier(devicePubKey);
             endpoint.endpoint_id = std::vector<uint8_t>{eId.begin(), eId.begin() + 6};
-            std::move(devicePubKey.begin(), devicePubKey.end(), endpoint.endpoint_pk.begin());
+            endpoint.endpoint_pk.assign(devicePubKey.begin(), devicePubKey.end());
             persistentKey = stdAuth.shared_secret;
             endpoint.endpoint_prst_k.clear();
             endpoint.endpoint_prst_k.insert(endpoint.endpoint_prst_k.begin(), persistentKey.begin(), persistentKey.end());
