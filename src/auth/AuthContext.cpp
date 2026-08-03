@@ -192,8 +192,8 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
     TLV8 Auth0Res;
     Auth0Res.parse(response.data(), response.size());
     const tlv_t *pubkey = Auth0Res.expect(kEndpoint_Public_Key);
-    if (!Auth0Res.ok() || pubkey == nullptr) {
-      LOG(E, "Auth0 response is malformed or missing the endpoint public key");
+    if (!Auth0Res.ok() || pubkey == nullptr || pubkey->value.size() != 65) {
+      LOG(E, "Auth0 response is malformed or has an invalid endpoint public key");
       commandFlow(kCmdFlowFailed);
       return result;
     }
