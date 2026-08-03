@@ -222,22 +222,21 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
       auth_params.reader_private_key = &readerData.reader_sk;
       auth_params.readerEphPrivKey = &readerEphPrivKey;
       auto stdAuth = DDKStdAuth(auth_params).attest();
-      if(stdAuth){
+      if (stdAuth) {
         foundIssuer = stdAuth.issuer;
         foundEndpoint = stdAuth.endpoint;
-        if ((flowUsed = stdAuth.flow) == kFlowSTANDARD)
-        {
-          LOG(D, "Endpoint %s Authenticated via STANDARD Flow", redactHex("", foundEndpoint->endpoint_id.data(), foundEndpoint->endpoint_id.size()).c_str());
-          persistentKey = stdAuth.shared_secret;
-          foundEndpoint->endpoint_prst_k.clear();
-          foundEndpoint->endpoint_prst_k.insert(foundEndpoint->endpoint_prst_k.begin(), persistentKey.begin(), persistentKey.end());
-          LOG_HEX(V, "New Persistent Key", foundEndpoint->endpoint_prst_k);
-        }
+        flowUsed = stdAuth.flow;
+        LOG(D, "Endpoint %s Authenticated via STANDARD Flow", redactHex("", foundEndpoint->endpoint_id.data(), foundEndpoint->endpoint_id.size()).c_str());
+        persistentKey = stdAuth.shared_secret;
+        foundEndpoint->endpoint_prst_k.clear();
+        foundEndpoint->endpoint_prst_k.insert(foundEndpoint->endpoint_prst_k.begin(), persistentKey.begin(), persistentKey.end());
+        LOG_HEX(V, "New Persistent Key", foundEndpoint->endpoint_prst_k);
       }
-      if ((stdAuth.flow == kFlowNext || hkFlow == kFlowATTESTATION) && type != kAliro) {
+      if ((stdAuth.flow == kFlowNext || hkFlow == kFlowATTESTATION) &&
+          stdAuth.secure_context != nullptr && type != kAliro) {
         auth_params.context = stdAuth.secure_context.get();
         auto attestation = DDKAttestationAuth(auth_params).attest();
-        if ((flowUsed = attestation.flow) == kFlowATTESTATION) {
+        if (attestation && (flowUsed = attestation.flow) == kFlowATTESTATION) {
           LOG(I, "ATTESTATION Flow complete, transaction took %lli ms", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - startTime).count());
           if(foundEndpoint != nullptr){
             foundEndpoint->endpoint_prst_k.clear();
