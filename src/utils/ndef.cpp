@@ -3,6 +3,8 @@
  */
 
 #include "ndef.h"
+#include <cstdint>
+#include <limits>
 #include <string.h>
 #include <vector>
 #include "DDKLogging.h"
@@ -43,35 +45,79 @@ NDEFMessage::NDEFMessage(std::initializer_list<NDEFRecord> records)
 
 std::vector<unsigned char> NDEFMessage::pack()
 {
-  unsigned char result[256];
-  size_t olen = 0;
+  constexpr size_t maxByteLength =
+      std::numeric_limits<unsigned char>::max();
+  constexpr size_t maxPayloadLength =
+      std::numeric_limits<uint32_t>::max();
+
+  size_t packedSize = 0;
+  for (const auto& record : this->records)
+  {
+    const size_t idLength = record.id.empty() ? 0 : record.id.size() - 1;
+    const size_t typeLength = record.type.empty() ? 0 : record.type.size() - 1;
+    const size_t payloadLength = record.data.empty() ? 0 : record.data.size() - 1;
+    if (idLength > maxByteLength || typeLength > maxByteLength) {
+      LOG(E, "NDEF record type or ID exceeds 255 bytes");
+      return {};
+    }
+    if (payloadLength > maxPayloadLength) {
+      LOG(E, "NDEF record payload exceeds 32-bit length field");
+      return {};
+    }
+    if (record.tnf > 0x07) {
+      LOG(E, "NDEF TNF exceeds its 3-bit field");
+      return {};
+    }
+
+    const size_t payloadLengthFieldSize = payloadLength <= maxByteLength ? 1 : 4;
+    const size_t recordSize = 2 + payloadLengthFieldSize +
+                              (idLength > 0 ? 1 : 0) +
+                              typeLength + idLength + payloadLength;
+    if (recordSize > std::numeric_limits<size_t>::max() - packedSize) {
+      LOG(E, "NDEF message size overflow");
+      return {};
+    }
+    packedSize += recordSize;
+  }
+
+  this->packedData.clear();
+  this->packedData.reserve(packedSize);
   for (size_t i = 0; i < this->records.size(); i++)
   {
-    unsigned char id_length = this->records.data()[i].id.size() - 1;
-    unsigned char type_length = this->records.data()[i].type.size() - 1;
-    unsigned char payload_length = this->records.data()[i].data.size() - 1;
-    unsigned char mb = (1 << 8) >> 1 * (i == 0);
-    unsigned char me = (1 << 8) >> 2 * (i == this->records.size() - 1);
-    unsigned char ch = 0x0;
-    unsigned char sr = (1 << 8) >> 4 * (payload_length <= 255);
-    unsigned char il = (1 << 8) >> 5 * (id_length > 0);
-    unsigned char tnf = this->records.data()[i].tnf;
-    unsigned char header = mb + me + ch + sr + il + tnf;
-    unsigned char packed[sizeof(header) + 1 + 1 + (id_length > 0 ? 1 : 0) + type_length + id_length + payload_length] = {
-        header,
-        (unsigned char)type_length,
-        (unsigned char)payload_length,
-        id_length,
-    };
-    memcpy(packed + sizeof(header) + 1 + 1 + (id_length > 0 ? 1 : 0), this->records.data()[i].type.data(), type_length);
-    memcpy(packed + sizeof(header) + 1 + 1 + (id_length > 0 ? 1 : 0) + type_length, this->records.data()[i].id.data(), id_length);
-    memcpy(packed + sizeof(header) + 1 + 1 + (id_length > 0 ? 1 : 0) + type_length + id_length, this->records.data()[i].data.data(), payload_length);
-    memcpy(result + olen, packed, sizeof(packed));
-    olen += sizeof(packed);
+    const auto& record = this->records[i];
+    const size_t idLength = record.id.empty() ? 0 : record.id.size() - 1;
+    const size_t typeLength = record.type.empty() ? 0 : record.type.size() - 1;
+    const size_t payloadLength = record.data.empty() ? 0 : record.data.size() - 1;
+    const bool shortRecord = payloadLength <= maxByteLength;
+    const unsigned char header =
+        (i == 0 ? 0x80 : 0x00) |
+        (i == this->records.size() - 1 ? 0x40 : 0x00) |
+        (shortRecord ? 0x10 : 0x00) |
+        (idLength > 0 ? 0x08 : 0x00) |
+        record.tnf;
+
+    this->packedData.push_back(header);
+    this->packedData.push_back(static_cast<unsigned char>(typeLength));
+    if (shortRecord) {
+      this->packedData.push_back(static_cast<unsigned char>(payloadLength));
+    } else {
+      const uint32_t encodedLength = static_cast<uint32_t>(payloadLength);
+      this->packedData.push_back(static_cast<unsigned char>(encodedLength >> 24));
+      this->packedData.push_back(static_cast<unsigned char>(encodedLength >> 16));
+      this->packedData.push_back(static_cast<unsigned char>(encodedLength >> 8));
+      this->packedData.push_back(static_cast<unsigned char>(encodedLength));
+    }
+    if (idLength > 0) {
+      this->packedData.push_back(static_cast<unsigned char>(idLength));
+    }
+    this->packedData.insert(this->packedData.end(), record.type.begin(),
+                            record.type.begin() + typeLength);
+    this->packedData.insert(this->packedData.end(), record.id.begin(),
+                            record.id.begin() + idLength);
+    this->packedData.insert(this->packedData.end(), record.data.begin(),
+                            record.data.begin() + payloadLength);
   }
-  this->packedData.clear();
-  this->packedData.insert(this->packedData.begin(), result, result + olen);
-  LOG(D, "NDEF MSG PACKED - LENGTH: %d, DATA: %s", packedData.size(), redactHex("", packedData).c_str());
+  LOG(D, "NDEF MSG PACKED - LENGTH: %zu, DATA: %s", packedData.size(), redactHex("", packedData).c_str());
   return this->packedData;
 }
 
