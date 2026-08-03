@@ -242,9 +242,9 @@ CborError copy_byte_string(CborValue *value, std::vector<uint8_t> &target) {
 }
 
 
-std::tuple<hkIssuer_t*, std::array<uint8_t, 65>> DDKAttestationAuth::verify(std::vector<uint8_t>& decryptedCbor) {
+AttestationVerificationResult DDKAttestationAuth::verify(std::vector<uint8_t>& decryptedCbor) {
     hkIssuer_t* foundIssuer = nullptr;
-    std::array<uint8_t, 65> devicePubKey;
+    std::array<uint8_t, 65> devicePubKey{};
 
     LOG(D, "Starting attestation verification with %d bytes of CBOR.", decryptedCbor.size());
 
@@ -488,7 +488,7 @@ std::tuple<hkIssuer_t*, std::array<uint8_t, 65>> DDKAttestationAuth::verify(std:
           int res = crypto_sign_ed25519_verify_detached(signature.data(), packageBuf.data(), package_size, foundIssuer->issuer_pk.data());
           if (res == 0) {
             LOG(D, "Attestation signature verification successful!");
-            return std::make_tuple(foundIssuer, devicePubKey);
+            return {foundIssuer, devicePubKey};
           }
           LOG(E, "Failed to verify attestation signature! Result code: %d", res);
         } else {
@@ -498,7 +498,7 @@ std::tuple<hkIssuer_t*, std::array<uint8_t, 65>> DDKAttestationAuth::verify(std:
     } while(0);
 
     LOG(E, "Attestation verification failed. Returning empty result.");
-    return std::make_tuple(nullptr, devicePubKey);
+    return {};
 }
 
 AttestationResult DDKAttestationAuth::attest()
@@ -539,9 +539,9 @@ AttestationResult DDKAttestationAuth::attest()
         if (env2DataDec.size() > 0)
         {
           auto verify_result = verify(env2DataDec);
-          if (std::get<1>(verify_result).size() > 0) {
-            result.device_pub_key = std::get<std::array<uint8_t,65>>(verify_result);
-            result.issuer = std::get<hkIssuer_t*>(verify_result);
+          if (verify_result) {
+            result.device_pub_key = verify_result.device_pub_key;
+            result.issuer = verify_result.issuer;
             result.flow = kFlowATTESTATION;
             return result;
           }

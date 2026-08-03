@@ -228,7 +228,8 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
       if ((stdAuth.flow == kFlowNext || hkFlow == kFlowATTESTATION) && type != kAliro) {
         auth_params.context = stdAuth.secure_context.get();
         auto attestation = DDKAttestationAuth(auth_params).attest();
-        if ((flowUsed = attestation.flow) == kFlowATTESTATION) {
+        if (attestation) {
+          flowUsed = attestation.flow;
           LOG(I, "ATTESTATION Flow complete, transaction took %lli ms", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - startTime).count());
           if(foundEndpoint != nullptr){
             foundEndpoint->endpoint_prst_k.clear();
