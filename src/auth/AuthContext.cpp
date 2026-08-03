@@ -272,7 +272,8 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
         cmdFlowStatus = commandFlow(kCmdFlowSuccess);
         LOG(D, "%s", redactHex("CONTROL FLOW RESPONSE", cmdFlowStatus).c_str());
       }
-      if (flowUsed == kFlowATTESTATION || cmdFlowStatus[0] == 0x90)
+      if (flowUsed == kFlowATTESTATION ||
+          (cmdFlowStatus.size() >= 2 && cmdFlowStatus[0] == 0x90 && cmdFlowStatus[1] == 0x00))
       {
         LOG(I, "Endpoint authenticated, transaction took %lli ms", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - startTime).count());
         result.issuer_id = foundIssuer->issuer_id;
