@@ -5,6 +5,7 @@
 #include "TLV8.hpp"
 #include "ISO18013SecureContext.h"
 #include "DDKLogging.h"
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #if defined(CONFIG_IDF_CMAKE)
@@ -467,15 +468,17 @@ AttestationVerificationResult DDKAttestationAuth::verify(std::vector<uint8_t>& d
         err = cbor_value_leave_container(&device_key_map, &key_map_iterator);
         if (err != CborNoError) { LOG(E, "Failed to leave deviceKey container."); break; }
 
-        if (deviceKeyX.empty() || deviceKeyY.empty()) {
-            LOG(E, "Parsing finished but deviceKeyX or deviceKeyY is missing.");
+        constexpr size_t coordinateSize = 32;
+        if (deviceKeyX.size() != coordinateSize || deviceKeyY.size() != coordinateSize) {
+            LOG(E, "Device key coordinates must each be exactly %zu bytes (X: %zu, Y: %zu).",
+                coordinateSize, deviceKeyX.size(), deviceKeyY.size());
             break;
         }
         LOG(D, "Extracted deviceKeyX (size: %d) and deviceKeyY (size: %d)", deviceKeyX.size(), deviceKeyY.size());
 
         devicePubKey[0] = 0x04;
-        std::move(std::make_move_iterator(deviceKeyX.begin()), std::make_move_iterator(deviceKeyX.end()), devicePubKey.data() + 1);
-        std::move(std::make_move_iterator(deviceKeyY.begin()), std::make_move_iterator(deviceKeyY.end()), devicePubKey.data() + 1);
+        std::copy(deviceKeyX.begin(), deviceKeyX.end(), devicePubKey.begin() + 1);
+        std::copy(deviceKeyY.begin(), deviceKeyY.end(), devicePubKey.begin() + 1 + coordinateSize);
         
         // --- Verification Logic ---
         for (auto &&issuer : params.issuers) {
