@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <limits>
 #include <string.h>
+#include <utility>
 #include <vector>
 #include "DDKLogging.h"
 
@@ -35,7 +36,9 @@ NDEFRecord::NDEFRecord(std::vector<unsigned char> id, unsigned char tnf, std::ve
 }
 
 NDEFMessage::NDEFMessage(unsigned char *data, size_t length){
-  this->packedData.insert(this->packedData.begin(), data, data + length);
+  if (length > 0) {
+    this->packedData.insert(this->packedData.begin(), data, data + length);
+  }
 }
 
 NDEFMessage::NDEFMessage(std::initializer_list<NDEFRecord> records)
@@ -122,62 +125,81 @@ std::vector<unsigned char> NDEFMessage::pack()
 }
 
 std::vector<NDEFRecord> NDEFMessage::unpack(){
-  std::vector<NDEFRecord> records;
-  unsigned char header[1];
-  unsigned char type_length[1];
-  unsigned char payload_length[1];
-  unsigned char id_length[1];
+  std::vector<NDEFRecord> parsed_records;
   size_t i = 0;
+  const size_t size = this->packedData.size();
+  bool first_record = true;
+  bool message_ended = false;
+
+  const auto available = [&i, size](size_t length) {
+    return i <= size && length <= size - i;
+  };
+
   while(i < this->packedData.size())
   {
-    header[0] = this->packedData.data()[i];
-    i++;
-    unsigned char sr = ((header[0] >> 4 << 7) & 0xFF) >> 3;
-    unsigned char il = ((header[0] >> 3 << 7) & 0xFF) >> 4;
-    unsigned char tnf = ((header[0] << 5) & 0xFF) >> 5;
+    if (!available(2)) return {};
+    const unsigned char header = this->packedData[i++];
+    const bool mb = (header & 0x80) != 0;
+    const bool me = (header & 0x40) != 0;
+    const bool sr = (header & 0x10) != 0;
+    const bool il = (header & 0x08) != 0;
+    const unsigned char tnf = header & 0x07;
 
-    type_length[0] = this->packedData.data()[i];
-    i++;
+    if (mb != first_record || message_ended) return {};
 
-    if(sr){
-      payload_length[0] = this->packedData.data()[i];
-      i++;
-    }
-    else
-    {
-      payload_length[0] = this->packedData.data()[i];
+    const size_t type_length = this->packedData[i++];
+
+    uint32_t payload_length = 0;
+    if (sr) {
+      if (!available(1)) return {};
+      payload_length = this->packedData[i++];
+    } else {
+      if (!available(4)) return {};
+      payload_length = (static_cast<uint32_t>(this->packedData[i]) << 24) |
+                       (static_cast<uint32_t>(this->packedData[i + 1]) << 16) |
+                       (static_cast<uint32_t>(this->packedData[i + 2]) << 8) |
+                       static_cast<uint32_t>(this->packedData[i + 3]);
       i += 4;
     }
 
-    if(il){
-      id_length[0] = this->packedData.data()[i];
-      i++;
+    size_t id_length = 0;
+    if (il) {
+      if (!available(1)) return {};
+      id_length = this->packedData[i++];
     }
-    else
-    {
-      id_length[0] = 0;
-    }
+
+    if (!available(type_length)) return {};
 
     std::vector<unsigned char> type_vec;
-    type_vec.insert(type_vec.begin(), this->packedData.data() + i, this->packedData.data() + i + type_length[0]);
+    type_vec.insert(type_vec.end(), this->packedData.begin() + i,
+                    this->packedData.begin() + i + type_length);
     type_vec.push_back('\0');
-    i += type_length[0];
+    i += type_length;
 
+    if (!available(id_length)) return {};
     std::vector<unsigned char> id_vec;
-    id_vec.resize(id_length[0] + 1);
-    id_vec.insert(id_vec.begin(), this->packedData.data() + i, this->packedData.data() + i + id_length[0]);
+    id_vec.insert(id_vec.end(), this->packedData.begin() + i,
+                  this->packedData.begin() + i + id_length);
     id_vec.push_back('\0');
-    i += id_length[0];
+    i += id_length;
 
+    if (!available(payload_length)) return {};
     std::vector<unsigned char> payload_vec;
-    payload_vec.insert(payload_vec.begin(), this->packedData.data() + i, this->packedData.data() + i + payload_length[0]);
+    payload_vec.insert(payload_vec.end(), this->packedData.begin() + i,
+                       this->packedData.begin() + i + payload_length);
     payload_vec.push_back('\0');
-    i += payload_length[0];
+    i += payload_length;
     
     LOG(D, "NDEF RECORD ID: %s, TNF: %d, TYPE: %s, PAYLOAD: %s", redactHex("", id_vec).c_str(), (int)tnf, redactHex("", type_vec).c_str(), redactHex("", payload_vec).c_str());
-    records.emplace_back(id_vec, tnf, type_vec, payload_vec);
+    parsed_records.emplace_back(id_vec, tnf, type_vec, payload_vec);
+    first_record = false;
+    message_ended = me;
+
+    if (message_ended && i != size) return {};
   }
-  this->records.insert(this->records.begin(), records.data(), records.data() + records.size());
+
+  if (!message_ended) return {};
+  this->records = std::move(parsed_records);
   return this->records;
 }
 
