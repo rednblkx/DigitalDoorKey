@@ -191,21 +191,30 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
     };
     TLV8 Auth0Res;
     Auth0Res.parse(response.data(), response.size());
-    tlv_it pubkey = Auth0Res.find(kEndpoint_Public_Key);
+    const tlv_t *pubkey = Auth0Res.expect(kEndpoint_Public_Key);
+    if (!Auth0Res.ok() || pubkey == nullptr) {
+      LOG(E, "Auth0 response is malformed or missing the endpoint public key");
+      commandFlow(kCmdFlowFailed);
+      return result;
+    }
     endpointEphPubKey = pubkey->value;
     endpointEphX = CommonCryptoUtils::get_x(endpointEphPubKey);
     hkIssuer_t *foundIssuer = nullptr;
     hkEndpoint_t *foundEndpoint = nullptr;
     KeyFlow flowUsed = kFlowFailed;
     if (hkFlow == kFlowFAST) {
-      tlv_it crypt = Auth0Res.find(kAuth0_Cryptogram);
-      std::vector<uint8_t> encryptedMessage = crypt->value;
-      auto fastAuth = DDKFastAuth(auth_params).attest(encryptedMessage);
-      if (fastAuth && (flowUsed = fastAuth.flow) == kFlowFAST)
-      {
-        foundIssuer = fastAuth.issuer;
-        foundEndpoint = fastAuth.endpoint;
-        LOG(D, "Endpoint %s Authenticated via FAST Flow", redactHex("", foundEndpoint->endpoint_id.data(), foundEndpoint->endpoint_id.size()).c_str());
+      const tlv_t *crypt = Auth0Res.expect(kAuth0_Cryptogram);
+      if (crypt != nullptr) {
+        std::vector<uint8_t> encryptedMessage = crypt->value;
+        auto fastAuth = DDKFastAuth(auth_params).attest(encryptedMessage);
+        if (fastAuth && (flowUsed = fastAuth.flow) == kFlowFAST)
+        {
+          foundIssuer = fastAuth.issuer;
+          foundEndpoint = fastAuth.endpoint;
+          LOG(D, "Endpoint %s Authenticated via FAST Flow", redactHex("", foundEndpoint->endpoint_id.data(), foundEndpoint->endpoint_id.size()).c_str());
+        }
+      } else {
+        LOG(W, "Auth0 cryptogram missing; moving to STANDARD Flow");
       }
     }
     if(foundEndpoint == nullptr){
