@@ -26,11 +26,23 @@ std::vector<unsigned char> DDKAttestationAuth::attestation_salt(std::vector<unsi
   TLV8 env1ResTlv;
   env1ResTlv.parse(env1Data.data(), env1Data.size());
   tlv_it tlvEnv1Ndef = env1ResTlv.find(kNDEF_MESSAGE);
+  if (tlvEnv1Ndef == env1ResTlv.end()) {
+    LOG(E, "Envelope 1 response is missing required NDEF message (0x53).");
+    return std::vector<unsigned char>();
+  }
   std::vector<uint8_t> env1Ndef = tlvEnv1Ndef->value;
   NDEFMessage ndefEnv1Ctx = NDEFMessage(env1Ndef.data(), env1Ndef.size());
   auto ndefEnv1Data = ndefEnv1Ctx.unpack();
   auto ndefEnv1Pack = ndefEnv1Ctx.pack();
   NDEFRecord* res_eng = ndefEnv1Ctx.findType("iso.org:18013:deviceengagement");
+  if (res_eng == nullptr) {
+    LOG(E, "Envelope 1 NDEF message is missing required device engagement record.");
+    return std::vector<unsigned char>();
+  }
+  if (res_eng->data.size() <= 1) {
+    LOG(E, "Device engagement record has an empty payload.");
+    return std::vector<unsigned char>();
+  }
   uint8_t buf[255];
   uint8_t devEngCbor[255];
   CborEncoder devEng;
@@ -217,6 +229,10 @@ std::vector<unsigned char> DDKAttestationAuth::envelope2Cmd(std::vector<uint8_t>
     tlv_it tlvStatus = data.find(0x90);
     if (tlvStatus != data.end()) {
       tlv_it tlvEncMsg = data.find(0x53);
+      if (tlvEncMsg == data.end()) {
+        LOG(E, "Envelope 2 response is missing required encrypted message (0x53).");
+        return std::vector<uint8_t>();
+      }
       std::vector<uint8_t> encryptedMessage = tlvEncMsg->value;
       auto decrypted_message = secureCtx.decryptMessageFromEndpoint(encryptedMessage);
       if(decrypted_message.size() > 0){
