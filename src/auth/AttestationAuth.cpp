@@ -4,9 +4,11 @@
 #include "simple_tlv.hpp"
 #include "TLV8.hpp"
 #include "ISO18013SecureContext.h"
+#include "CommonCryptoUtils.h"
 #include "DDKLogging.h"
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #if defined(CONFIG_IDF_CMAKE)
 #include <esp_random.h>
@@ -18,6 +20,10 @@
 #include <mbedtls/error.h>
 #include <cbor.h>
 #include <vector>
+
+namespace {
+constexpr size_t kIssuerIdSize = 8;
+}
 
 DDKAttestationAuth::DDKAttestationAuth(DDKAuthParams &params) : params(params) {
 }
@@ -407,6 +413,16 @@ AttestationVerificationResult DDKAttestationAuth::verify(std::vector<uint8_t>& d
         }
         LOG(D, "Extracted signature, size: %d", signature.size());
 
+        if (issuerId.size() != kIssuerIdSize) {
+            LOG(E, "Invalid issuerId size: %zu (expected %zu).", issuerId.size(), kIssuerIdSize);
+            break;
+        }
+        if (signature.size() != crypto_sign_ed25519_BYTES) {
+            LOG(E, "Invalid Ed25519 signature size: %zu (expected %zu).",
+                signature.size(), static_cast<size_t>(crypto_sign_ed25519_BYTES));
+            break;
+        }
+
         // --- Start Parsing the inner 'data' CBOR payload ---
         std::vector<uint8_t> deviceKeyX, deviceKeyY;
         
@@ -482,9 +498,15 @@ AttestationVerificationResult DDKAttestationAuth::verify(std::vector<uint8_t>& d
         
         // --- Verification Logic ---
         for (auto &&issuer : params.issuers) {
-          if (std::equal(issuer.issuer_id.begin(), issuer.issuer_id.end(), issuerId.begin())) {
+          if (issuer.issuer_id.size() != kIssuerIdSize ||
+              issuer.issuer_pk.size() != crypto_sign_ed25519_PUBLICKEYBYTES) {
+            LOG(E, "Ignoring issuer with invalid ID or Ed25519 public key size.");
+            continue;
+          }
+          if (CommonCryptoUtils::constant_time_compare(issuer.issuer_id, issuerId)) {
             LOG_HEX(D, "Found matching Issuer", issuer.issuer_id);
             foundIssuer = &issuer;
+            break;
           }
         }
 
