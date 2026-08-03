@@ -192,7 +192,10 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
     TLV8 Auth0Res;
     Auth0Res.parse(response.data(), response.size());
     const tlv_t *pubkey = Auth0Res.expect(kEndpoint_Public_Key);
-    if (!Auth0Res.ok() || pubkey == nullptr || pubkey->value.size() != 65) {
+    // SEC1 uncompressed P-256 point: 0x04 prefix || X (32 bytes) || Y (32 bytes).
+    constexpr size_t kP256UncompressedPublicKeySize = 1 + 32 + 32;
+    if (!Auth0Res.ok() || pubkey == nullptr ||
+        pubkey->value.size() != kP256UncompressedPublicKeySize) {
       LOG(E, "Auth0 response is malformed or has an invalid endpoint public key");
       commandFlow(kCmdFlowFailed);
       return result;
