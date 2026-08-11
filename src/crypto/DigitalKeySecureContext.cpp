@@ -230,24 +230,33 @@ std::tuple<std::vector<uint8_t>, std::vector<uint8_t>> DigitalKeySecureContext::
 std::vector<uint8_t> DigitalKeySecureContext::decrypt_response(const unsigned char* data, size_t dataSize) {
     std::vector<uint8_t> plaintext;
     if (!useAliro) {
+        constexpr size_t response_mac_size = 8;
+        constexpr size_t aes_block_size = 16;
+        if (dataSize < response_mac_size + aes_block_size ||
+            (dataSize - response_mac_size) % aes_block_size != 0) {
+            LOG(E, "Invalid STANDARD secure response length: %zu bytes", dataSize);
+            return {};
+        }
+
         LOG(D, "%s", redactHex("kenc", kenc, sizeof(kenc)).c_str());
         LOG(D, "%s", redactHex("kmac", kmac, sizeof(kmac)).c_str());
         LOG(D, "%s", redactHex("krmac", krmac, sizeof(krmac)).c_str());
         LOG(V, "encrypted_data: (%zu bytes, redacted)", (size_t)dataSize);
         std::vector<uint8_t> calculated_rmac(16);
-        size_t input_dataSize = 16 + (dataSize - 8);
-        std::vector<uint8_t> input_data = concatenate_arrays(mac_chaining_value, data, 16, dataSize - 8);
+        const size_t ciphertext_size = dataSize - response_mac_size;
+        size_t input_dataSize = 16 + ciphertext_size;
+        std::vector<uint8_t> input_data = concatenate_arrays(mac_chaining_value, data, 16, ciphertext_size);
         int cmac_status = aes_cmac(krmac, input_data.data(), input_dataSize, calculated_rmac.data());
-        LOG_HEX(V, "recv_rmac", std::vector(data + (dataSize - 8),(data + (dataSize - 8)) + 8) );
+        LOG_HEX(V, "recv_rmac", std::vector(data + ciphertext_size, data + dataSize));
         LOG_HEX(V, "calculated_rmac", calculated_rmac);
         if(cmac_status) return {};
 
-        if(!CommonCryptoUtils::constant_time_compare(data + (dataSize - 8), calculated_rmac.data(), 8)){
+        if(!CommonCryptoUtils::constant_time_compare(data + ciphertext_size, calculated_rmac.data(), response_mac_size)){
             LOG(E, "calculated_rmac != recv_rmac");
             return {};
         }
 
-         plaintext = decrypt(data, dataSize - 8, response_pcb, kenc);
+         plaintext = decrypt(data, ciphertext_size, response_pcb, kenc);
     } else {
         if (dataSize < 16) {
             LOG(E, "Response too short: %zu bytes (need at least 16 for GCM tag)", dataSize);

@@ -191,49 +191,59 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
     };
     TLV8 Auth0Res;
     Auth0Res.parse(response.data(), response.size());
-    tlv_it pubkey = Auth0Res.find(kEndpoint_Public_Key);
+    const tlv_t *pubkey = Auth0Res.expect(kEndpoint_Public_Key);
+    // SEC1 uncompressed P-256 point: 0x04 prefix || X (32 bytes) || Y (32 bytes).
+    constexpr size_t kP256UncompressedPublicKeySize = 1 + 32 + 32;
+    if (!Auth0Res.ok() || pubkey == nullptr ||
+        pubkey->value.size() != kP256UncompressedPublicKeySize) {
+      LOG(E, "Auth0 response is malformed or has an invalid endpoint public key");
+      commandFlow(kCmdFlowFailed);
+      return result;
+    }
     endpointEphPubKey = pubkey->value;
     endpointEphX = CommonCryptoUtils::get_x(endpointEphPubKey);
     hkIssuer_t *foundIssuer = nullptr;
     hkEndpoint_t *foundEndpoint = nullptr;
     KeyFlow flowUsed = kFlowFailed;
     if (hkFlow == kFlowFAST) {
-      tlv_it crypt = Auth0Res.find(kAuth0_Cryptogram);
-      std::vector<uint8_t> encryptedMessage = crypt->value;
-      auto fastAuth = DDKFastAuth(auth_params).attest(encryptedMessage);
-      if (fastAuth && (flowUsed = fastAuth.flow) == kFlowFAST)
-      {
-        foundIssuer = fastAuth.issuer;
-        foundEndpoint = fastAuth.endpoint;
-        LOG(D, "Endpoint %s Authenticated via FAST Flow", redactHex("", foundEndpoint->endpoint_id.data(), foundEndpoint->endpoint_id.size()).c_str());
+      const tlv_t *crypt = Auth0Res.expect(kAuth0_Cryptogram);
+      if (crypt != nullptr) {
+        std::vector<uint8_t> encryptedMessage = crypt->value;
+        auto fastAuth = DDKFastAuth(auth_params).attest(encryptedMessage);
+        if (fastAuth && (flowUsed = fastAuth.flow) == kFlowFAST)
+        {
+          foundIssuer = fastAuth.issuer;
+          foundEndpoint = fastAuth.endpoint;
+          LOG(D, "Endpoint %s Authenticated via FAST Flow", redactHex("", foundEndpoint->endpoint_id.data(), foundEndpoint->endpoint_id.size()).c_str());
+        }
+      } else {
+        LOG(W, "Auth0 cryptogram missing; moving to STANDARD Flow");
       }
     }
     if(foundEndpoint == nullptr){
-      std::array<uint8_t,32> persistentKey{};
       auth_params.reader_private_key = &readerData.reader_sk;
       auth_params.readerEphPrivKey = &readerEphPrivKey;
       auto stdAuth = DDKStdAuth(auth_params).attest();
-      if(stdAuth){
+      if (stdAuth) {
         foundIssuer = stdAuth.issuer;
         foundEndpoint = stdAuth.endpoint;
         if ((flowUsed = stdAuth.flow) == kFlowSTANDARD)
         {
           LOG(D, "Endpoint %s Authenticated via STANDARD Flow", redactHex("", foundEndpoint->endpoint_id.data(), foundEndpoint->endpoint_id.size()).c_str());
-          persistentKey = stdAuth.shared_secret;
           foundEndpoint->endpoint_prst_k.clear();
-          foundEndpoint->endpoint_prst_k.insert(foundEndpoint->endpoint_prst_k.begin(), persistentKey.begin(), persistentKey.end());
+          foundEndpoint->endpoint_prst_k.insert(foundEndpoint->endpoint_prst_k.begin(), stdAuth.shared_secret.begin(), stdAuth.shared_secret.end());
           LOG_HEX(V, "New Persistent Key", foundEndpoint->endpoint_prst_k);
         }
       }
-      if ((stdAuth.flow == kFlowNext || hkFlow == kFlowATTESTATION) && type != kAliro) {
+      if ((stdAuth.flow == kFlowNext || hkFlow == kFlowATTESTATION) &&
+          stdAuth.secure_context != nullptr && type != kAliro) {
         auth_params.context = stdAuth.secure_context.get();
         auto attestation = DDKAttestationAuth(auth_params).attest();
-        if (attestation) {
-          flowUsed = attestation.flow;
+        if (attestation && (flowUsed = attestation.flow) == kFlowATTESTATION) {
           LOG(I, "ATTESTATION Flow complete, transaction took %lli ms", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - startTime).count());
           if(foundEndpoint != nullptr){
             foundEndpoint->endpoint_prst_k.clear();
-            foundEndpoint->endpoint_prst_k.insert(foundEndpoint->endpoint_prst_k.begin(), persistentKey.begin(), persistentKey.end());
+            foundEndpoint->endpoint_prst_k.insert(foundEndpoint->endpoint_prst_k.begin(), stdAuth.shared_secret.begin(), stdAuth.shared_secret.end());
           } else {
             hkEndpoint_t endpoint;
             foundIssuer = attestation.issuer;
@@ -243,9 +253,8 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
             std::vector<uint8_t> eId = getHashIdentifier(devicePubKey);
             endpoint.endpoint_id = std::vector<uint8_t>{eId.begin(), eId.begin() + 6};
             endpoint.endpoint_pk.assign(devicePubKey.begin(), devicePubKey.end());
-            persistentKey = stdAuth.shared_secret;
             endpoint.endpoint_prst_k.clear();
-            endpoint.endpoint_prst_k.insert(endpoint.endpoint_prst_k.begin(), persistentKey.begin(), persistentKey.end());
+            endpoint.endpoint_prst_k.insert(endpoint.endpoint_prst_k.begin(), stdAuth.shared_secret.begin(), stdAuth.shared_secret.end());
             foundEndpoint = &(*foundIssuer->endpoints.emplace(foundIssuer->endpoints.end(),endpoint));
           }
           if(foundEndpoint != nullptr){
@@ -265,7 +274,8 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
         cmdFlowStatus = commandFlow(kCmdFlowSuccess);
         LOG(D, "%s", redactHex("CONTROL FLOW RESPONSE", cmdFlowStatus).c_str());
       }
-      if (flowUsed == kFlowATTESTATION || cmdFlowStatus[0] == 0x90)
+      if (flowUsed == kFlowATTESTATION ||
+          (cmdFlowStatus.size() >= 2 && cmdFlowStatus[0] == 0x90 && cmdFlowStatus[1] == 0x00))
       {
         LOG(I, "Endpoint authenticated, transaction took %lli ms", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - startTime).count());
         result.issuer_id = foundIssuer->issuer_id;

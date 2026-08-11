@@ -82,6 +82,12 @@ std::tuple<hkIssuer_t *, hkEndpoint_t *> DDKFastAuth::find_endpoint_by_cryptogra
 {
   hkEndpoint_t *foundEndpoint = nullptr;
   hkIssuer_t *foundIssuer = nullptr;
+  constexpr size_t kHomeKeyCryptogramLength = 16;
+  if (params.type == kHomeKey && cryptogram.size() != kHomeKeyCryptogramLength)
+  {
+    LOG(W, "Invalid Home Key cryptogram length: %zu", cryptogram.size());
+    return std::make_tuple(foundIssuer, foundEndpoint);
+  }
   for (auto &&issuer : params.issuers)
   {
     LOG(V, "Issuer: %s, Endpoints: %d", redactHex("", issuer.issuer_id.data(), issuer.issuer_id.size()).c_str(), issuer.endpoints.size());

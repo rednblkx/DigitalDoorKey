@@ -235,9 +235,15 @@ StandardAuthResult DDKStdAuth::attest()
   hkEndpoint_t *foundEndpoint = nullptr;
   hkIssuer_t *foundIssuer = nullptr;
   StandardAuthResult result;
-  if (response.size() > 2 && response[response.size() - 2] == 0x90)
+  constexpr size_t status_word_size = 2;
+  constexpr size_t standard_min_secure_response_size = 16 + 8;
+  constexpr size_t aliro_min_secure_response_size = 16;
+  const size_t min_secure_response_size =
+      params.type == kHomeKey ? standard_min_secure_response_size : aliro_min_secure_response_size;
+  if (response.size() >= min_secure_response_size + status_word_size &&
+      response[response.size() - status_word_size] == 0x90)
   {
-    auto response_result = context->decrypt_response(response.data(), response.size() - 2);
+    auto response_result = context->decrypt_response(response.data(), response.size() - status_word_size);
     LOG(D, "%s", redactHex("Decrypted", response_result).c_str());
     if (!response_result.empty())
     {
