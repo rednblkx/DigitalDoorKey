@@ -221,19 +221,19 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
       }
     }
     if(foundEndpoint == nullptr){
-      std::array<uint8_t,32> persistentKey{};
       auth_params.reader_private_key = &readerData.reader_sk;
       auth_params.readerEphPrivKey = &readerEphPrivKey;
       auto stdAuth = DDKStdAuth(auth_params).attest();
       if (stdAuth) {
         foundIssuer = stdAuth.issuer;
         foundEndpoint = stdAuth.endpoint;
-        flowUsed = stdAuth.flow;
-        LOG(D, "Endpoint %s Authenticated via STANDARD Flow", redactHex("", foundEndpoint->endpoint_id.data(), foundEndpoint->endpoint_id.size()).c_str());
-        persistentKey = stdAuth.shared_secret;
-        foundEndpoint->endpoint_prst_k.clear();
-        foundEndpoint->endpoint_prst_k.insert(foundEndpoint->endpoint_prst_k.begin(), persistentKey.begin(), persistentKey.end());
-        LOG_HEX(V, "New Persistent Key", foundEndpoint->endpoint_prst_k);
+        if ((flowUsed = stdAuth.flow) == kFlowSTANDARD)
+        {
+          LOG(D, "Endpoint %s Authenticated via STANDARD Flow", redactHex("", foundEndpoint->endpoint_id.data(), foundEndpoint->endpoint_id.size()).c_str());
+          foundEndpoint->endpoint_prst_k.clear();
+          foundEndpoint->endpoint_prst_k.insert(foundEndpoint->endpoint_prst_k.begin(), stdAuth.shared_secret.begin(), stdAuth.shared_secret.end());
+          LOG_HEX(V, "New Persistent Key", foundEndpoint->endpoint_prst_k);
+        }
       }
       if ((stdAuth.flow == kFlowNext || hkFlow == kFlowATTESTATION) &&
           stdAuth.secure_context != nullptr && type != kAliro) {
@@ -243,7 +243,7 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
           LOG(I, "ATTESTATION Flow complete, transaction took %lli ms", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - startTime).count());
           if(foundEndpoint != nullptr){
             foundEndpoint->endpoint_prst_k.clear();
-            foundEndpoint->endpoint_prst_k.insert(foundEndpoint->endpoint_prst_k.begin(), persistentKey.begin(), persistentKey.end());
+            foundEndpoint->endpoint_prst_k.insert(foundEndpoint->endpoint_prst_k.begin(), stdAuth.shared_secret.begin(), stdAuth.shared_secret.end());
           } else {
             hkEndpoint_t endpoint;
             foundIssuer = attestation.issuer;
@@ -253,9 +253,8 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
             std::vector<uint8_t> eId = getHashIdentifier(devicePubKey);
             endpoint.endpoint_id = std::vector<uint8_t>{eId.begin(), eId.begin() + 6};
             endpoint.endpoint_pk.assign(devicePubKey.begin(), devicePubKey.end());
-            persistentKey = stdAuth.shared_secret;
             endpoint.endpoint_prst_k.clear();
-            endpoint.endpoint_prst_k.insert(endpoint.endpoint_prst_k.begin(), persistentKey.begin(), persistentKey.end());
+            endpoint.endpoint_prst_k.insert(endpoint.endpoint_prst_k.begin(), stdAuth.shared_secret.begin(), stdAuth.shared_secret.end());
             foundEndpoint = &(*foundIssuer->endpoints.emplace(foundIssuer->endpoints.end(),endpoint));
           }
           if(foundEndpoint != nullptr){
