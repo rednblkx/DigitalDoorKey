@@ -74,13 +74,17 @@ std::tuple<std::vector<uint8_t>, std::vector<uint8_t>> DDKAttestationAuth::envel
 {
   std::vector<uint8_t> ctrlFlow = {0x80, 0x3c, 0x40, 0xa0};
   std::vector<uint8_t> ctrlFlowRes;
-  params.nfc(ctrlFlow, ctrlFlowRes, false);
+  if (!params.nfc(ctrlFlow, ctrlFlowRes, false) || ctrlFlowRes.size() < 2) {
+    return std::make_tuple(std::vector<uint8_t>(), std::vector<uint8_t>());
+  }
   LOG(D, "%s", redactHex("CTRL FLOW RES", ctrlFlowRes).c_str());
   if (ctrlFlowRes[0] == 0x90 && ctrlFlowRes[1] == 0x0)
   { // cla=0x00; ins=0xa4; p1=0x04; p2=0x00; lc=0x07(7); data=a0000008580102; le=0x00
     std::vector<uint8_t> data = {0x00, 0xA4, 0x04, 0x00, 0x07, 0xA0, 0x00, 0x00, 0x08, 0x58, 0x01, 0x02, 0x0};
     std::vector<uint8_t> response;
-    params.nfc(data, response, false);
+    if (!params.nfc(data, response, false) || response.size() < 2) {
+      return std::make_tuple(std::vector<uint8_t>(), std::vector<uint8_t>());
+    }
     LOG(D, "%s", redactHex("ENV1.2 RES", response).c_str());
     if (response[0] == 0x90 && response[1] == 0x0){
       unsigned char payload[] = {0x15, 0x91, 0x02, 0x02, 0x63, 0x72, 0x01, 0x02, 0x51, 0x02, 0x11, 0x61, 0x63, 0x01, 0x03, 0x6e, 0x66, 0x63, 0x01, 0x0a, 0x6d, 0x64, 0x6f, 0x63, 0x72, 0x65, 0x61, 0x64, 0x65, 0x72};
@@ -98,7 +102,9 @@ std::tuple<std::vector<uint8_t>, std::vector<uint8_t>> DDKAttestationAuth::envel
       env1Apdu.push_back(0x0);
       LOG(D, "%s", redactHex("APDU CMD", env1Apdu).c_str());
       std::vector<uint8_t> env1Res;
-      params.nfc(env1Apdu, env1Res, false);
+      if (!params.nfc(env1Apdu, env1Res, false) || env1Res.size() < 2) {
+        return std::make_tuple(std::vector<uint8_t>(), std::vector<uint8_t>());
+      }
       LOG(D, "%s", redactHex("APDU RES", env1Res).c_str());
       if (env1Res[env1Res.size() - 2] == 0x90 && env1Res[env1Res.size() - 1] == 0x0){
         return std::make_tuple(env1Res, ndefMessage);
@@ -182,13 +188,17 @@ std::vector<unsigned char> DDKAttestationAuth::envelope2Cmd(std::vector<uint8_t>
     std::vector<uint8_t> dataStatus;
     std::vector<uint8_t> getData = {0x0, 0xc0, 0x0, 0x0, 0x0};
     LOG(D, "%s", redactHex("ENV2 APDU", apdu).c_str());
-    params.nfc(apdu, dataStatus, false);
+    if (!params.nfc(apdu, dataStatus, false) || dataStatus.size() < 2) {
+      return std::vector<uint8_t>();
+    }
     bool getMore = false;
     do
     {
       getMore = false;
       bool status = params.nfc(getData, env2Res, false);
-      if(!status) break;
+      if(!status || env2Res.size() < 2) {
+        return std::vector<uint8_t>();
+      }
       attestation_package.insert(attestation_package.end(), env2Res.begin(), env2Res.end());
       LOG(D, "Data Length: %d - pkg length: %d", env2Res.size(), attestation_package.size());
       if(env2Res.size() >= 250 && (*(&env2Res.back() - 1) == 0x61)){
