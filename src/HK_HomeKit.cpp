@@ -13,20 +13,27 @@ std::mutex HK_HomeKit::provision_mutex;
 HK_HomeKit::HK_HomeKit(readerData_t& readerData, std::function<void(const readerData_t&)> save_cb, std::function<void()> remove_key_cb, std::vector<uint8_t>& tlvData) : tlvData(tlvData), readerData(readerData), save_cb(save_cb), remove_key_cb(remove_key_cb) { }
 
 std::vector<uint8_t> HK_HomeKit::processResult() {
-  tlv_it operation;
-  tlv_it RKR;
-  tlv_it DCR;
+  std::lock_guard<std::mutex> lock(provision_mutex);
+
   TLV8 rxTlv;
   rxTlv.parse(tlvData.data(), tlvData.size());
-  operation = rxTlv.find(kReader_Operation);
-  RKR = rxTlv.find(kReader_Reader_Key_Request);
-  DCR = rxTlv.find(kReader_Device_Credential_Request);
+  if (!rxTlv.ok()) {
+    LOG(E, "Failed to parse incoming TLV data");
+    return std::vector<uint8_t>();
+  }
+
+  tlv_it operation = rxTlv.find(kReader_Operation);
+  tlv_it RKR = rxTlv.find(kReader_Reader_Key_Request);
+  tlv_it DCR = rxTlv.find(kReader_Device_Credential_Request);
+
   if (operation != rxTlv.end() && operation->length() > 0) {
-    LOG(I, "TLV OPERATION: %d", *operation->data());
-    if (*operation->data() == kReader_Operation_Read)
-      if ((*RKR).tag == kReader_Reader_Key_Request) {
-        LOG(I,"GET READER KEY REQUEST");
-        if (!readerData.reader_sk.empty()) {
+    uint8_t op = *operation->data();
+    LOG(I, "TLV OPERATION: %d", op);
+
+    if (op == kReader_Operation_Read) {
+      if (RKR != rxTlv.end() && RKR->tag == kReader_Reader_Key_Request) {
+        LOG(I, "GET READER KEY REQUEST");
+        if (!readerData.reader_sk.empty() && !readerData.reader_gid.empty()) {
           TLV8 getResSub;
           getResSub.add(kReader_Res_Key_Identifier, readerData.reader_gid);
           std::vector<uint8_t> subTlv = getResSub.get();
@@ -37,55 +44,51 @@ std::vector<uint8_t> HK_HomeKit::processResult() {
           LOG(D, "%s", redactHex("TLV", tlvRes).c_str());
           return tlvRes;
         }
-        return std::vector<uint8_t>{  };
+        return std::vector<uint8_t>();
       }
+    } else if (op == kReader_Operation_Write) {
+      if (RKR != rxTlv.end()) {
+        LOG(I, "TLV RKR: %d", RKR->length());
+        LOG(I, "SET READER KEY REQUEST");
+        int ret = set_reader_key(RKR->value);
+        if (ret == 0) {
+          LOG(I, "READER KEY SAVED TO NVS, COMPOSING RESPONSE");
+          TLV8 rkResSub;
+          rkResSub.add(kReader_Res_Status, 0);
+          std::vector<uint8_t> rkSubTlv = rkResSub.get();
+          LOG(D, "%s", redactHex("SUB-TLV", rkSubTlv).c_str());
+          TLV8 rkResTlv;
+          rkResTlv.add(kReader_Res_Reader_Key_Response, rkSubTlv);
+          return rkResTlv.get();
+        }
+      } else if (DCR != rxTlv.end()) {
+        LOG(I, "TLV DCR: %d", DCR->length());
+        LOG(D, "PROVISION DEVICE CREDENTIAL REQUEST");
+        auto state = provision_device_cred(DCR->value);
+        if (std::get<1>(state) != 99 && !std::get<0>(state).empty()) {
+          TLV8 dcrResSubTlv;
+          dcrResSubTlv.add(kDevice_Res_Issuer_Key_Identifier, std::get<0>(state).size(), std::get<0>(state).data());
+          dcrResSubTlv.add(kDevice_Res_Status, std::get<1>(state));
+          std::vector<uint8_t> packedRes = dcrResSubTlv.get();
+          LOG(D, "SUB-TLV: %d", (int)packedRes.size());
+          LOG(D, "%s", redactHex("SUB-TLV", packedRes).c_str());
+          TLV8 dcrResTlv;
+          dcrResTlv.add(kDevice_Credential_Response, packedRes);
+          return dcrResTlv.get();
+        }
+      }
+    } else if (op == kReader_Operation_Remove) {
+      if (RKR != rxTlv.end()) {
+        LOG(I, "REMOVE READER KEY REQUEST");
+        readerData.reader_gid.clear();
+        readerData.reader_id.clear();
+        readerData.reader_sk.clear();
+        save_cb(readerData);
+        return std::vector<uint8_t>{ 0x7, 0x3, 0x2, 0x1, 0x0 };
+      }
+    }
   }
-  if (operation != rxTlv.end() && *operation->data() == kReader_Operation_Write) {
-    if (RKR != rxTlv.end()) {
-      LOG(I,"TLV RKR: %d", RKR->length());
-      LOG(I,"SET READER KEY REQUEST");
-      int ret = set_reader_key(RKR->value);
-      if (ret == 0) {
-        LOG(I,"READER KEY SAVED TO NVS, COMPOSING RESPONSE");
-        TLV8 rkResSub;
-        rkResSub.add(kReader_Res_Status, 0);
-        std::vector<uint8_t> rkSubTlv = rkResSub.get();
-        LOG(D, "%s", redactHex("SUB-TLV", rkSubTlv).c_str());
-        TLV8 rkResTlv;
-        rkResTlv.add(kReader_Res_Reader_Key_Response, rkSubTlv);
-        std::vector<uint8_t> rkRes = rkResTlv.get();
-        return rkRes;
-      }
-    }
-    else if (DCR != rxTlv.end()) {
-      LOG(I,"TLV DCR: %d",DCR->length());
-      LOG(D,"PROVISION DEVICE CREDENTIAL REQUEST");
-      auto state = provision_device_cred(DCR->value);
-      if (std::get<1>(state) != 99 && std::get<0>(state).size() > 0) {
-        TLV8 dcrResSubTlv;
-        dcrResSubTlv.add(kDevice_Res_Issuer_Key_Identifier, std::get<0>(state).size(), std::get<0>(state).data());
-        dcrResSubTlv.add(kDevice_Res_Status, std::get<1>(state));
-        std::vector<uint8_t> packedRes = dcrResSubTlv.get();
-        LOG(D,"SUB-TLV: %d",(int)packedRes.size());
-        LOG(D, "%s", redactHex("SUB-TLV", packedRes).c_str());
-        TLV8 dcrResTlv;
-        dcrResTlv.add(kDevice_Credential_Response, packedRes);
-        std::vector<uint8_t> result = dcrResTlv.get();
-        LOG(D,"TLV: %d", (int)result.size());
-        LOG(D, "%s", redactHex("TLV", result).c_str());
-        return result;
-      }
-    }
-  }
-  if (operation != rxTlv.end() && *operation->data() == kReader_Operation_Remove)
-    if (RKR != rxTlv.end()) {
-      LOG(I,"REMOVE READER KEY REQUEST");
-      readerData.reader_gid.clear();
-      readerData.reader_id.clear();
-      readerData.reader_sk.clear();
-      save_cb(readerData);
-      return std::vector<uint8_t>{ 0x7, 0x3, 0x2, 0x1, 0x0 };
-    }
+
   return std::vector<uint8_t>();
 }
 
@@ -131,27 +134,37 @@ std::vector<uint8_t> HK_HomeKit::getPublicKey(uint8_t *privKey, size_t len)
 }
 
 std::vector<uint8_t> HK_HomeKit::getHashIdentifier(const std::vector<uint8_t>& key, bool sha256) {
-  // ESP_LOGV(TAG, "Key: {}, Length: {}, sha256?: {}", bufToHexString(key.data(), key.size()).c_str(), key.size(), sha256);
   std::vector<unsigned char> hashable;
   if (sha256) {
-    std::string string = "key-identifier";
-    hashable.insert(hashable.begin(), string.begin(), string.end());
+    std::string prefix = "key-identifier";
+    hashable.insert(hashable.begin(), prefix.begin(), prefix.end());
   }
   hashable.insert(hashable.end(), key.begin(), key.end());
-  // ESP_LOGV(TAG, "Hashable: {}", bufToHexString(&hashable.front(), hashable.size()).c_str());
-  std::vector<uint8_t> hash(32);
+
+  std::vector<uint8_t> hash(32, 0);
+
   if (sha256) {
-    mbedtls_sha256(&hashable.front(), hashable.size(), hash.data(), 0);
+    mbedtls_sha256_context ctx;
+    mbedtls_sha256_init(&ctx);
+    if (mbedtls_sha256_starts(&ctx, 0) == 0) {
+      mbedtls_sha256_update(&ctx, hashable.data(), hashable.size());
+      mbedtls_sha256_finish(&ctx, hash.data());
+    }
+    mbedtls_sha256_free(&ctx);
+  } else {
+    mbedtls_sha1_context ctx;
+    mbedtls_sha1_init(&ctx);
+    if (mbedtls_sha1_starts(&ctx) == 0) {
+      mbedtls_sha1_update(&ctx, hashable.data(), hashable.size());
+      mbedtls_sha1_finish(&ctx, hash.data());
+    }
+    mbedtls_sha1_free(&ctx);
   }
-  else {
-    mbedtls_sha1(&hashable.front(), hashable.size(), hash.data());
-  }
-  // ESP_LOGD(TAG, "HashIdentifier: {}", bufToHexString(hash.data(), 32).c_str());
+
   return hash;
 }
 
 std::tuple<std::vector<uint8_t>, int> HK_HomeKit::provision_device_cred(std::vector<uint8_t> buf) {
-  std::lock_guard<std::mutex> lock(provision_mutex);
   LOG(D, "DCReq Buffer length: %d (data redacted)", (int)buf.size());
   TLV8 dcrTlv;
   dcrTlv.parse(buf.data(), buf.size());
@@ -200,7 +213,9 @@ std::tuple<std::vector<uint8_t>, int> HK_HomeKit::provision_device_cred(std::vec
         endpoint.key_type = *keyType.data();
         endpoint.last_used_at = 0;
         // endpoint.enrollments.hap = hap;
-        endpoint.endpoint_id = std::vector<uint8_t>{ endpointId.begin(), endpointId.begin() + 6 };
+        if (hash.size() >= 6) {
+          endpoint.endpoint_id = endpointId;
+        }
         endpoint.endpoint_pk = devicePubKey;
         endpoint.endpoint_pk_x = x_coordinate;
         foundIssuer->endpoints.emplace_back(endpoint);
@@ -245,7 +260,11 @@ int HK_HomeKit::set_reader_key(std::vector<uint8_t>& buf) {
     readerData.reader_id = uniqueIdentifier;
     std::vector<uint8_t> readeridentifier = getHashIdentifier(readerData.reader_sk, true);
     LOG(D, "%s", redactHex("Reader GroupIdentifier", readeridentifier.data(), readeridentifier.size()).c_str());
-    readerData.reader_gid = std::vector<uint8_t>{readeridentifier.begin(), readeridentifier.begin() + 8};
+    if (readeridentifier.size() >= 8) {
+      readerData.reader_gid = std::vector<uint8_t>(readeridentifier.begin(), readeridentifier.begin() + 8);
+    } else {
+      readerData.reader_gid = readeridentifier;
+    }
     save_cb(readerData);
   }
   return 0;
