@@ -4,8 +4,11 @@
 #include "simple_tlv.hpp"
 #include "TLV8.hpp"
 #include "ISO18013SecureContext.h"
+#include "CommonCryptoUtils.h"
 #include "DDKLogging.h"
+#include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #if defined(CONFIG_IDF_CMAKE)
 #include <esp_random.h>
@@ -18,6 +21,10 @@
 #include <cbor.h>
 #include <vector>
 
+namespace {
+constexpr size_t kIssuerIdSize = 8;
+}
+
 DDKAttestationAuth::DDKAttestationAuth(DDKAuthParams &params) : params(params) {
 }
 
@@ -26,11 +33,23 @@ std::vector<unsigned char> DDKAttestationAuth::attestation_salt(std::vector<unsi
   TLV8 env1ResTlv;
   env1ResTlv.parse(env1Data.data(), env1Data.size());
   tlv_it tlvEnv1Ndef = env1ResTlv.find(kNDEF_MESSAGE);
+  if (tlvEnv1Ndef == env1ResTlv.end()) {
+    LOG(E, "Envelope 1 response is missing required NDEF message (0x53).");
+    return std::vector<unsigned char>();
+  }
   std::vector<uint8_t> env1Ndef = tlvEnv1Ndef->value;
   NDEFMessage ndefEnv1Ctx = NDEFMessage(env1Ndef.data(), env1Ndef.size());
   auto ndefEnv1Data = ndefEnv1Ctx.unpack();
   auto ndefEnv1Pack = ndefEnv1Ctx.pack();
   NDEFRecord* res_eng = ndefEnv1Ctx.findType("iso.org:18013:deviceengagement");
+  if (res_eng == nullptr) {
+    LOG(E, "Envelope 1 NDEF message is missing required device engagement record.");
+    return std::vector<unsigned char>();
+  }
+  if (res_eng->data.size() <= 1) {
+    LOG(E, "Device engagement record has an empty payload.");
+    return std::vector<unsigned char>();
+  }
   uint8_t buf[255];
   uint8_t devEngCbor[255];
   CborEncoder devEng;
@@ -217,6 +236,10 @@ std::vector<unsigned char> DDKAttestationAuth::envelope2Cmd(std::vector<uint8_t>
     tlv_it tlvStatus = data.find(0x90);
     if (tlvStatus != data.end()) {
       tlv_it tlvEncMsg = data.find(0x53);
+      if (tlvEncMsg == data.end()) {
+        LOG(E, "Envelope 2 response is missing required encrypted message (0x53).");
+        return std::vector<uint8_t>();
+      }
       std::vector<uint8_t> encryptedMessage = tlvEncMsg->value;
       auto decrypted_message = secureCtx.decryptMessageFromEndpoint(encryptedMessage);
       if(decrypted_message.size() > 0){
@@ -242,9 +265,9 @@ CborError copy_byte_string(CborValue *value, std::vector<uint8_t> &target) {
 }
 
 
-std::tuple<hkIssuer_t*, std::array<uint8_t, 65>> DDKAttestationAuth::verify(std::vector<uint8_t>& decryptedCbor) {
+AttestationVerificationResult DDKAttestationAuth::verify(std::vector<uint8_t>& decryptedCbor) {
     hkIssuer_t* foundIssuer = nullptr;
-    std::array<uint8_t, 65> devicePubKey;
+    std::array<uint8_t, 65> devicePubKey{};
 
     LOG(D, "Starting attestation verification with %d bytes of CBOR.", decryptedCbor.size());
 
@@ -390,6 +413,16 @@ std::tuple<hkIssuer_t*, std::array<uint8_t, 65>> DDKAttestationAuth::verify(std:
         }
         LOG(D, "Extracted signature, size: %d", signature.size());
 
+        if (issuerId.size() != kIssuerIdSize) {
+            LOG(E, "Invalid issuerId size: %zu (expected %zu).", issuerId.size(), kIssuerIdSize);
+            break;
+        }
+        if (signature.size() != crypto_sign_ed25519_BYTES) {
+            LOG(E, "Invalid Ed25519 signature size: %zu (expected %zu).",
+                signature.size(), static_cast<size_t>(crypto_sign_ed25519_BYTES));
+            break;
+        }
+
         // --- Start Parsing the inner 'data' CBOR payload ---
         std::vector<uint8_t> deviceKeyX, deviceKeyY;
         
@@ -451,21 +484,29 @@ std::tuple<hkIssuer_t*, std::array<uint8_t, 65>> DDKAttestationAuth::verify(std:
         err = cbor_value_leave_container(&device_key_map, &key_map_iterator);
         if (err != CborNoError) { LOG(E, "Failed to leave deviceKey container."); break; }
 
-        if (deviceKeyX.empty() || deviceKeyY.empty()) {
-            LOG(E, "Parsing finished but deviceKeyX or deviceKeyY is missing.");
+        constexpr size_t coordinateSize = 32;
+        if (deviceKeyX.size() != coordinateSize || deviceKeyY.size() != coordinateSize) {
+            LOG(E, "Device key coordinates must each be exactly %zu bytes (X: %zu, Y: %zu).",
+                coordinateSize, deviceKeyX.size(), deviceKeyY.size());
             break;
         }
         LOG(D, "Extracted deviceKeyX (size: %d) and deviceKeyY (size: %d)", deviceKeyX.size(), deviceKeyY.size());
 
         devicePubKey[0] = 0x04;
-        std::move(std::make_move_iterator(deviceKeyX.begin()), std::make_move_iterator(deviceKeyX.end()), devicePubKey.data() + 1);
-        std::move(std::make_move_iterator(deviceKeyY.begin()), std::make_move_iterator(deviceKeyY.end()), devicePubKey.data() + 1);
+        std::copy(deviceKeyX.begin(), deviceKeyX.end(), devicePubKey.begin() + 1);
+        std::copy(deviceKeyY.begin(), deviceKeyY.end(), devicePubKey.begin() + 1 + coordinateSize);
         
         // --- Verification Logic ---
         for (auto &&issuer : params.issuers) {
-          if (std::equal(issuer.issuer_id.begin(), issuer.issuer_id.end(), issuerId.begin())) {
+          if (issuer.issuer_id.size() != kIssuerIdSize ||
+              issuer.issuer_pk.size() != crypto_sign_ed25519_PUBLICKEYBYTES) {
+            LOG(E, "Ignoring issuer with invalid ID or Ed25519 public key size.");
+            continue;
+          }
+          if (CommonCryptoUtils::constant_time_compare(issuer.issuer_id, issuerId)) {
             LOG_HEX(D, "Found matching Issuer", issuer.issuer_id);
             foundIssuer = &issuer;
+            break;
           }
         }
 
@@ -488,7 +529,7 @@ std::tuple<hkIssuer_t*, std::array<uint8_t, 65>> DDKAttestationAuth::verify(std:
           int res = crypto_sign_ed25519_verify_detached(signature.data(), packageBuf.data(), package_size, foundIssuer->issuer_pk.data());
           if (res == 0) {
             LOG(D, "Attestation signature verification successful!");
-            return std::make_tuple(foundIssuer, devicePubKey);
+            return {foundIssuer, devicePubKey};
           }
           LOG(E, "Failed to verify attestation signature! Result code: %d", res);
         } else {
@@ -498,7 +539,7 @@ std::tuple<hkIssuer_t*, std::array<uint8_t, 65>> DDKAttestationAuth::verify(std:
     } while(0);
 
     LOG(E, "Attestation verification failed. Returning empty result.");
-    return std::make_tuple(nullptr, devicePubKey);
+    return {};
 }
 
 AttestationResult DDKAttestationAuth::attest()
@@ -539,9 +580,9 @@ AttestationResult DDKAttestationAuth::attest()
         if (env2DataDec.size() > 0)
         {
           auto verify_result = verify(env2DataDec);
-          if (std::get<1>(verify_result).size() > 0) {
-            result.device_pub_key = std::get<std::array<uint8_t,65>>(verify_result);
-            result.issuer = std::get<hkIssuer_t*>(verify_result);
+          if (verify_result) {
+            result.device_pub_key = verify_result.device_pub_key;
+            result.issuer = verify_result.issuer;
             result.flow = kFlowATTESTATION;
             return result;
           }

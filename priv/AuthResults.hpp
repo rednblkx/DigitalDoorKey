@@ -13,8 +13,18 @@ class DigitalKeySecureContext;
  */
 struct AttestationResult {
     hkIssuer_t* issuer = nullptr;
-    std::array<uint8_t,65> device_pub_key;
+    std::array<uint8_t,65> device_pub_key{};
     KeyFlow flow = kFlowFailed;
+
+    explicit operator bool() const { return issuer != nullptr && flow == kFlowATTESTATION; }
+};
+
+/**
+ * Result of verifying the attestation response.
+ */
+struct AttestationVerificationResult {
+    hkIssuer_t* issuer = nullptr;
+    std::array<uint8_t, 65> device_pub_key{};
 
     explicit operator bool() const { return issuer != nullptr; }
 };
