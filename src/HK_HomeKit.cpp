@@ -65,7 +65,7 @@ std::vector<uint8_t> HK_HomeKit::processResult() {
         LOG(I, "TLV DCR: %d", DCR->length());
         LOG(D, "PROVISION DEVICE CREDENTIAL REQUEST");
         auto state = provision_device_cred(DCR->value);
-        if (std::get<1>(state) != 99 && !std::get<0>(state).empty()) {
+        if (std::get<int>(state) == SUCCESS && !std::get<0>(state).empty()) {
           TLV8 dcrResSubTlv;
           dcrResSubTlv.add(kDevice_Res_Issuer_Key_Identifier, std::get<0>(state).size(), std::get<0>(state).data());
           dcrResSubTlv.add(kDevice_Res_Status, std::get<1>(state));
@@ -181,15 +181,19 @@ std::vector<uint8_t> HK_HomeKit::getHashIdentifier(const std::vector<uint8_t>& k
   return hash;
 }
 
-std::tuple<std::vector<uint8_t>, int> HK_HomeKit::provision_device_cred(std::vector<uint8_t> buf) {
-  LOG(D, "DCReq Buffer length: %d (data redacted)", (int)buf.size());
+std::tuple<std::vector<uint8_t>, int> HK_HomeKit::provision_device_cred(const std::vector<uint8_t> &buf) {
+  LOG(D, "DCReq Add length: %d (data redacted)", (int)buf.size());
   TLV8 dcrTlv;
   dcrTlv.parse(buf.data(), buf.size());
+  if (!dcrTlv.ok()) {
+    LOG(E, "DCReq TLV parse error");
+    return {{}, DOES_NOT_EXIST};
+  }
   hkIssuer_t* foundIssuer = nullptr;
   const tlv_t* tlvIssuerId = dcrTlv.expect(kDevice_Req_Issuer_Key_Identifier);
   if (tlvIssuerId == nullptr) {
     LOG(E, "Issuer Key Identifier missing from DCR");
-    return std::make_tuple(readerData.reader_gid, DOES_NOT_EXIST);
+    return {{}, DOES_NOT_EXIST};
   }
   std::vector<uint8_t> issuerIdentifier = tlvIssuerId->value;
   if (issuerIdentifier.size() > 0) {
@@ -251,7 +255,7 @@ std::tuple<std::vector<uint8_t>, int> HK_HomeKit::provision_device_cred(std::vec
       return std::make_tuple(issuerIdentifier, DOES_NOT_EXIST);
     }
   }
-  return std::make_tuple(readerData.reader_gid, DOES_NOT_EXIST);
+  return {{}, DOES_NOT_EXIST};
 }
 
 std::tuple<std::vector<uint8_t>, int> HK_HomeKit::remove_device_cred(const std::vector<uint8_t> &buf) {
@@ -260,7 +264,7 @@ std::tuple<std::vector<uint8_t>, int> HK_HomeKit::remove_device_cred(const std::
   dcrTlv.parse(buf.data(), buf.size());
   if(!dcrTlv.ok()){
     LOG(E, "DCReq TLV parse error");
-    return {{}, NOT_SUPPORTED};
+    return {{}, DOES_NOT_EXIST};
   }
 
   const tlv_t* tlvIssuerId = dcrTlv.expect(kDevice_Req_Issuer_Key_Identifier);
@@ -379,6 +383,10 @@ int HK_HomeKit::set_reader_key(const std::vector<uint8_t>& buf) {
   LOG(D, "Setting reader key (%d bytes, redacted)", (int)buf.size());
   TLV8 rkrTLv;
   rkrTLv.parse(buf.data(), buf.size());
+  if (!rkrTLv.ok()) {
+    LOG(E, "RKR TLV parse error");
+    return -1;
+  }
   tlv_it tlvReaderKey = rkrTLv.find(kReader_Req_Reader_Private_Key);
   if(tlvReaderKey == rkrTLv.end()){ LOG(D, "kReader_Req_Reader_Private_Key not found"); return -1;}
   std::vector<uint8_t> readerKey = tlvReaderKey->value;
