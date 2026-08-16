@@ -187,13 +187,13 @@ std::tuple<std::vector<uint8_t>, int> HK_HomeKit::provision_device_cred(const st
   dcrTlv.parse(buf.data(), buf.size());
   if (!dcrTlv.ok()) {
     LOG(E, "DCReq TLV parse error");
-    return {{}, DOES_NOT_EXIST};
+    return {std::vector<uint8_t>{}, DOES_NOT_EXIST};
   }
   hkIssuer_t* foundIssuer = nullptr;
   const tlv_t* tlvIssuerId = dcrTlv.expect(kDevice_Req_Issuer_Key_Identifier);
   if (tlvIssuerId == nullptr) {
     LOG(E, "Issuer Key Identifier missing from DCR");
-    return {{}, DOES_NOT_EXIST};
+    return {std::vector<uint8_t>{}, DOES_NOT_EXIST};
   }
   std::vector<uint8_t> issuerIdentifier = tlvIssuerId->value;
   if (issuerIdentifier.size() > 0) {
@@ -255,7 +255,7 @@ std::tuple<std::vector<uint8_t>, int> HK_HomeKit::provision_device_cred(const st
       return std::make_tuple(issuerIdentifier, DOES_NOT_EXIST);
     }
   }
-  return {{}, DOES_NOT_EXIST};
+  return {std::vector<uint8_t>{}, DOES_NOT_EXIST};
 }
 
 std::tuple<std::vector<uint8_t>, int> HK_HomeKit::remove_device_cred(const std::vector<uint8_t> &buf) {
@@ -264,7 +264,7 @@ std::tuple<std::vector<uint8_t>, int> HK_HomeKit::remove_device_cred(const std::
   dcrTlv.parse(buf.data(), buf.size());
   if(!dcrTlv.ok()){
     LOG(E, "DCReq TLV parse error");
-    return {{}, DOES_NOT_EXIST};
+    return {std::vector<uint8_t>{}, DOES_NOT_EXIST};
   }
 
   const tlv_t* tlvIssuerId = dcrTlv.expect(kDevice_Req_Issuer_Key_Identifier);
@@ -372,11 +372,11 @@ std::tuple<std::vector<uint8_t>, int> HK_HomeKit::remove_device_cred(const std::
       }
     }
     LOG(D, "Endpoint missing across all issuers");
-    return {{}, DOES_NOT_EXIST};
+    return {std::vector<uint8_t>{}, DOES_NOT_EXIST};
   }
 
   LOG(E, "Invalid remove DCR: missing issuer ID, key ID, and public key");
-  return {{}, DOES_NOT_EXIST};
+  return {std::vector<uint8_t>{}, DOES_NOT_EXIST};
 }
 
 int HK_HomeKit::set_reader_key(const std::vector<uint8_t>& buf) {
