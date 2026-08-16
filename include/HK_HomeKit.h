@@ -14,6 +14,7 @@ class HK_HomeKit
     std::vector<uint8_t> get_x(std::vector<uint8_t> &pubKey);
     std::vector<uint8_t> getPublicKey(uint8_t *privKey, size_t len);
     std::tuple<std::vector<uint8_t>, int> provision_device_cred(std::vector<uint8_t> buf);
+    std::tuple<std::vector<uint8_t>, int> remove_device_cred(const std::vector<uint8_t> &buf);
     const std::function<void(const readerData_t&)> save_cb;
     const std::function<void()> remove_key_cb;
     int set_reader_key(std::vector<uint8_t>& buf);
