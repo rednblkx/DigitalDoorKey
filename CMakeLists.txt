@@ -33,7 +33,7 @@ FetchContent_Declare(
 # 2. Make it available
 FetchContent_MakeAvailable(tinycbor)
 add_library(HK-HomeKit-Lib STATIC ${app_sources})
-target_include_directories(HK-HomeKit-Lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(HK-HomeKit-Lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/include/ddk)
 target_include_directories(HK-HomeKit-Lib PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/priv)
 target_link_libraries(HK-HomeKit-Lib mbedtls mbedcrypto sodium fmt tinycbor)
 endif()

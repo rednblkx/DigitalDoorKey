@@ -18,6 +18,7 @@
 #include <mbedtls/sha1.h>
 #include <chrono>
 #include <TLV8.hpp>
+#include "ddk/transport/ApduChannel.h"
 
 std::vector<uint8_t> DDKAuthenticationContext::getHashIdentifier(const std::array<uint8_t,65>& key) {
   LOG(V, "%s", redactHex("Key", key).c_str());
@@ -40,11 +41,12 @@ std::vector<uint8_t> DDKAuthenticationContext::getHashIdentifier(const std::arra
  */
 std::vector<uint8_t> DDKAuthenticationContext::commandFlow(CommandFlowStatus status)
 {
-  std::vector<uint8_t> cmdFlowRes(3);
+  std::vector<uint8_t> cmdFlowRes(2);
   if (type == kHomeKey) {
     std::vector<uint8_t> apdu = {0x80, 0x3c, static_cast<uint8_t>(status), 0x0};
     LOG(D, "%s", redactHex("APDU", apdu).c_str());
-    nfc(apdu, cmdFlowRes, false);
+    auto resp = channel_->transceive(apdu);
+    cmdFlowRes = {resp.sw1, resp.sw2};
   }
   if (type == kAliro) {
     const uint8_t t = (status == kCmdFlowFailed ? 0x00 : 0x01);
@@ -53,28 +55,24 @@ std::vector<uint8_t> DDKAuthenticationContext::commandFlow(CommandFlowStatus sta
       0x06,
       0x41, 0x01, t,
       0x42, 0x01, 0x01
-  };
-
+    };
     LOG_HEX(D, "Aliro Control Flow APDU", apdu);
-    nfc(apdu, cmdFlowRes, false);
+    auto resp = channel_->transceive(apdu);
+    cmdFlowRes = {resp.sw1, resp.sw2};
   }
   return cmdFlowRes;
 }
 
-/**
- * The HKAuthenticationContext constructor generates an ephemeral key for the reader and initializes
- * core variables
- *
- * @param nfc The `nfc` parameter is a function pointer that points to a
- * function responsible for exchanging data with an NFC device. It takes input data, its length, and
- * returns a response along with the response length.
- * @param readerData The `readerData` parameter is a reference to an object of the type
- * `readerData_t`.
- * @param save_cb Callback to persist the reader data
- */
-DDKAuthenticationContext::DDKAuthenticationContext(DigitalKeyType type, const std::function<bool(std::vector<uint8_t>&, std::vector<uint8_t>&, bool)> &nfc, readerData_t &readerData, const std::function<void(const readerData_t&)> &save_cb) : type(type), readerData(readerData), nfc(nfc), save_cb(save_cb)
+DDKAuthenticationContext::DDKAuthenticationContext(
+    DigitalKeyType type,
+    std::shared_ptr<ddk::ApduChannel> transport,
+    readerData_t &readerData,
+    const std::function<void(const readerData_t&)> &save_cb)
+  : type(type),
+    readerData(readerData),
+    channel_(std::move(transport)),
+    save_cb(save_cb)
 {
-  // esp_log_level_set(TAG, ESP_LOG_VERBOSE);
   if (type == DigitalKeyType::kAliro) {
     protocolVersion = {0x00, 0x09};
   } else if (type == DigitalKeyType::kHomeKey) {
@@ -95,14 +93,6 @@ DDKAuthenticationContext::DDKAuthenticationContext(DigitalKeyType type, const st
   readerEphX = CommonCryptoUtils::get_x(readerEphPubKey);
   auto stopTime = std::chrono::high_resolution_clock::now();
   LOG(I, "Initialization Time: %lli ms", std::chrono::duration_cast<std::chrono::milliseconds>(stopTime - startTime).count());
-}
-
-void DDKAuthenticationContext::setAliroFCI(const std::vector<uint8_t> &fci) {
-  aliroFCI = fci;
-}
-
-void DDKAuthenticationContext::overrideProtocolVersion(std::array<uint8_t,2> ver) {
-  this->protocolVersion = ver;
 }
 
 /**
@@ -158,19 +148,18 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
   std::vector<uint8_t> apdu{0x80, 0x80, p1, p2, static_cast<uint8_t>(fastTlv.size())};
 
   apdu.insert(apdu.end(), std::make_move_iterator(fastTlv.begin()), std::make_move_iterator(fastTlv.end()));
-  std::vector<uint8_t> response;
   LOG(D, "%s", redactHex("Auth0 APDU", apdu).c_str());
-  nfc(apdu, response, false);
+  auto resp = channel_->transceive(apdu);
 #if defined(CONFIG_IDF_CMAKE)
-  ESP_LOG_BUFFER_HEX_LEVEL(TAG, response.data(), response.size(), ESP_LOG_VERBOSE);
+  ESP_LOG_BUFFER_HEX_LEVEL(TAG, resp.data.data(), resp.data.size(), ESP_LOG_VERBOSE);
 #else
   for (int i = 0; i < response.size(); i++) {
     printf("%02X", response[i]);
   }
 #endif
-  LOG(D, "%s", redactHex("Auth0 Response", response).c_str());
+  LOG(D, "%s", redactHex("Auth0 Response", resp.data).c_str());
   AuthContextResult result;
-  if (response.size() > 64 && response[0] == 0x86) {
+  if (resp.ok() && resp.data.size() > 64 && resp.data[0] == 0x86) {
     DDKAuthParams auth_params{
       type,
       readerData.issuers,
@@ -182,15 +171,15 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
       readerIdentifier,
       aliroFCI,
       protocolVersion,
-      nfc,
       nullptr,
       nullptr,
       nullptr,
       flags,
-      nullptr
+      nullptr,
+      channel_.get()
     };
     TLV8 Auth0Res;
-    Auth0Res.parse(response.data(), response.size());
+    Auth0Res.parse(resp.data.data(), resp.data.size());
     const tlv_t *pubkey = Auth0Res.expect(kEndpoint_Public_Key);
     // SEC1 uncompressed P-256 point: 0x04 prefix || X (32 bytes) || Y (32 bytes).
     constexpr size_t kP256UncompressedPublicKeySize = 1 + 32 + 32;

@@ -3,7 +3,9 @@
 #include "DDKReaderData.h"
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <vector>
+#include "ddk/transport/ApduChannel.h"
 
 /**
  * Result of the higher-level Context authentication.
@@ -17,7 +19,7 @@ struct AuthContextResult {
 class DDKAuthenticationContext
 {
 private:
-  const char *TAG = "HKAuthCtx";
+  const char *TAG = "AuthCtx";
   DigitalKeyType type;
   readerData_t &readerData;
   SecureBuffer<32> readerEphX;
@@ -25,7 +27,7 @@ private:
   SecureBuffer<65> readerEphPubKey;
   SecureBuffer<65> endpointEphPubKey;
   SecureBuffer<32> endpointEphX;
-  const std::function<bool(std::vector<uint8_t>&, std::vector<uint8_t>&, bool)> &nfc;
+  std::shared_ptr<ddk::ApduChannel> channel_;
   const std::function<void(const readerData_t&)> &save_cb;
   SecureBuffer<16> transactionIdentifier;
   std::vector<uint8_t> readerIdentifier;
@@ -35,9 +37,10 @@ private:
 	std::array<uint8_t,2> flags{0x01, 0x01};
 	std::vector<uint8_t> aliroFCI;
 public:
-  DDKAuthenticationContext(DigitalKeyType type,const std::function<bool(std::vector<uint8_t> &, std::vector<uint8_t> &, bool)> &nfc,
-                          readerData_t &readerData, const std::function<void(const readerData_t &)> &save_cb);
-	void setAliroFCI(const std::vector<uint8_t> &fci);
-	void overrideProtocolVersion(std::array<uint8_t,2> ver);
+  DDKAuthenticationContext(DigitalKeyType type,
+      std::shared_ptr<ddk::ApduChannel> transport,
+      readerData_t &readerData,
+      const std::function<void(const readerData_t &)> &save_cb);
+
   AuthContextResult authenticate(KeyFlow);
 };

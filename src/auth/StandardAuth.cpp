@@ -13,8 +13,8 @@
 #include <mbedtls/bignum.h>
 #include <TLV8.hpp>
 #include <mbedtls/ecdsa.h>
-#include <tuple>
 #include <vector>
+#include "ddk/transport/ApduChannel.h"
 
 constexpr char ALIRO_CTX_PERSISTENT_ASTR[] = "Persistent**";
 constexpr char HK_CTX_PERSISTENT_ASTR[] = "Persistent";
@@ -161,10 +161,9 @@ StandardAuthResult DDKStdAuth::attest()
     apdu.resize(apdu.size() + sigTlv.size());
     std::move(sigTlv.begin(), sigTlv.end(), apdu.begin() + 8);
   }
-  std::vector<uint8_t> response;
   LOG(D, "%s", redactHex("Auth1 APDU", apdu).c_str());
-  params.nfc(apdu, response, false);
-  LOG(D, "%s", redactHex("Auth1 Response", response).c_str());
+  auto response = params.channel_->transceive(apdu);
+  LOG(D, "%s", redactHex("Auth1 Response", response.data).c_str());
   std::array<uint8_t,32> persistentKey{};
   std::vector<uint8_t> volatileKey(48);
   if (params.type == kAliro){ volatileKey.resize(160); }
@@ -235,15 +234,14 @@ StandardAuthResult DDKStdAuth::attest()
   hkEndpoint_t *foundEndpoint = nullptr;
   hkIssuer_t *foundIssuer = nullptr;
   StandardAuthResult result;
-  constexpr size_t status_word_size = 2;
   constexpr size_t standard_min_secure_response_size = 16 + 8;
   constexpr size_t aliro_min_secure_response_size = 16;
   const size_t min_secure_response_size =
       params.type == kHomeKey ? standard_min_secure_response_size : aliro_min_secure_response_size;
-  if (response.size() >= min_secure_response_size + status_word_size &&
-      response[response.size() - status_word_size] == 0x90)
+  if (response.data.size() >= min_secure_response_size &&
+      response.ok())
   {
-    auto response_result = context->decrypt_response(response.data(), response.size() - status_word_size);
+    auto response_result = context->decrypt_response(response.data.data(), response.data.size());
     LOG(D, "%s", redactHex("Decrypted", response_result).c_str());
     if (!response_result.empty())
     {

@@ -20,6 +20,7 @@
 #include <mbedtls/error.h>
 #include <cbor.h>
 #include <vector>
+#include "ddk/transport/ApduChannel.h"
 
 namespace {
 constexpr size_t kIssuerIdSize = 8;
@@ -92,45 +93,38 @@ std::vector<unsigned char> DDKAttestationAuth::attestation_salt(std::vector<unsi
 std::tuple<std::vector<uint8_t>, std::vector<uint8_t>> DDKAttestationAuth::envelope1Cmd()
 {
   std::vector<uint8_t> ctrlFlow = {0x80, 0x3c, 0x40, 0xa0};
-  std::vector<uint8_t> ctrlFlowRes;
-  if (!params.nfc(ctrlFlow, ctrlFlowRes, false) || ctrlFlowRes.size() < 2) {
+  auto ctrlFlowRes = params.channel_->transceive(ctrlFlow);
+  if (!ctrlFlowRes.ok()) {
     return std::make_tuple(std::vector<uint8_t>(), std::vector<uint8_t>());
   }
-  LOG(D, "%s", redactHex("CTRL FLOW RES", ctrlFlowRes).c_str());
-  if (ctrlFlowRes[0] == 0x90 && ctrlFlowRes[1] == 0x0)
-  { // cla=0x00; ins=0xa4; p1=0x04; p2=0x00; lc=0x07(7); data=a0000008580102; le=0x00
-    std::vector<uint8_t> data = {0x00, 0xA4, 0x04, 0x00, 0x07, 0xA0, 0x00, 0x00, 0x08, 0x58, 0x01, 0x02, 0x0};
-    std::vector<uint8_t> response;
-    if (!params.nfc(data, response, false) || response.size() < 2) {
-      return std::make_tuple(std::vector<uint8_t>(), std::vector<uint8_t>());
-    }
-    LOG(D, "%s", redactHex("ENV1.2 RES", response).c_str());
-    if (response[0] == 0x90 && response[1] == 0x0){
-      unsigned char payload[] = {0x15, 0x91, 0x02, 0x02, 0x63, 0x72, 0x01, 0x02, 0x51, 0x02, 0x11, 0x61, 0x63, 0x01, 0x03, 0x6e, 0x66, 0x63, 0x01, 0x0a, 0x6d, 0x64, 0x6f, 0x63, 0x72, 0x65, 0x61, 0x64, 0x65, 0x72};
-      unsigned char payload1[] = {0x01};
-      unsigned char payload2[] = {0xa2, 0x00, 0x63, 0x31, 0x2e, 0x30, 0x20, 0x81, 0x29};
-      auto ndefMessage = NDEFMessage({NDEFRecord("", 0x01, "Hr", payload, sizeof(payload)),
-                                      NDEFRecord("nfc", 0x04, "iso.org:18013:nfc", payload1, 1),
-                                      NDEFRecord("mdocreader", 0x04, "iso.org:18013:readerengagement", payload2, sizeof(payload2))})
-                            .pack();
-      LOG(D, "%s", redactHex("NDEF CMD", ndefMessage).c_str());
-      auto envelope1Tlv = simple_tlv(0x53, ndefMessage);
-      std::vector<uint8_t> env1Apdu = {0x00, 0xc3, 0x00, 0x01, static_cast<uint8_t>(envelope1Tlv.size())};
-      env1Apdu.reserve(envelope1Tlv.size() + 6);
-      env1Apdu.insert(env1Apdu.end(), envelope1Tlv.begin(), envelope1Tlv.end());
-      env1Apdu.push_back(0x0);
-      LOG(D, "%s", redactHex("APDU CMD", env1Apdu).c_str());
-      std::vector<uint8_t> env1Res;
-      if (!params.nfc(env1Apdu, env1Res, false) || env1Res.size() < 2) {
-        return std::make_tuple(std::vector<uint8_t>(), std::vector<uint8_t>());
-      }
-      LOG(D, "%s", redactHex("APDU RES", env1Res).c_str());
-      if (env1Res[env1Res.size() - 2] == 0x90 && env1Res[env1Res.size() - 1] == 0x0){
-        return std::make_tuple(env1Res, ndefMessage);
-      }
-    }
+  LOG(D, "CONTROL FLOW %02x %02x", ctrlFlowRes.sw1, ctrlFlowRes.sw2);
+  // cla=0x00; ins=0xa4; p1=0x04; p2=0x00; lc=0x07(7); data=a0000008580102; le=0x00
+  std::vector<uint8_t> data = {0x00, 0xA4, 0x04, 0x00, 0x07, 0xA0, 0x00, 0x00, 0x08, 0x58, 0x01, 0x02, 0x0};
+  auto response = params.channel_->transceive(data);
+  if (!response.ok()) {
+    return std::make_tuple(std::vector<uint8_t>(), std::vector<uint8_t>());
   }
-  return std::make_tuple(std::vector<uint8_t>(), std::vector<uint8_t>());
+  LOG(D, "SELECT %02x %02x", response.sw1, response.sw2);
+  unsigned char payload[] = {0x15, 0x91, 0x02, 0x02, 0x63, 0x72, 0x01, 0x02, 0x51, 0x02, 0x11, 0x61, 0x63, 0x01, 0x03, 0x6e, 0x66, 0x63, 0x01, 0x0a, 0x6d, 0x64, 0x6f, 0x63, 0x72, 0x65, 0x61, 0x64, 0x65, 0x72};
+  unsigned char payload1[] = {0x01};
+  unsigned char payload2[] = {0xa2, 0x00, 0x63, 0x31, 0x2e, 0x30, 0x20, 0x81, 0x29};
+  auto ndefMessage = NDEFMessage({NDEFRecord("", 0x01, "Hr", payload, sizeof(payload)),
+                                  NDEFRecord("nfc", 0x04, "iso.org:18013:nfc", payload1, 1),
+                                  NDEFRecord("mdocreader", 0x04, "iso.org:18013:readerengagement", payload2, sizeof(payload2))})
+                        .pack();
+  LOG(D, "%s", redactHex("NDEF CMD", ndefMessage).c_str());
+  auto envelope1Tlv = simple_tlv(0x53, ndefMessage);
+  std::vector<uint8_t> env1Apdu = {0x00, 0xc3, 0x00, 0x01, static_cast<uint8_t>(envelope1Tlv.size())};
+  env1Apdu.reserve(envelope1Tlv.size() + 6);
+  env1Apdu.insert(env1Apdu.end(), envelope1Tlv.begin(), envelope1Tlv.end());
+  env1Apdu.push_back(0x0);
+  LOG(D, "%s", redactHex("APDU CMD", env1Apdu).c_str());
+  auto env1Res = params.channel_->transceive(env1Apdu);
+  if (!env1Res.ok()) {
+    return std::make_tuple(std::vector<uint8_t>(), std::vector<uint8_t>());
+  }
+  LOG(D, "%s", redactHex("APDU RES", env1Res.data).c_str());
+  return std::make_tuple(std::move(env1Res.data), ndefMessage);
 }
 
 std::vector<unsigned char> DDKAttestationAuth::envelope2Cmd(std::vector<uint8_t> &salt)
@@ -204,47 +198,42 @@ std::vector<unsigned char> DDKAttestationAuth::envelope2Cmd(std::vector<uint8_t>
     LOG(D, "%s", redactHex("ENV2 APDU", apdu).c_str());
     std::vector<uint8_t> env2Res;
     std::vector<uint8_t> attestation_package;
-    std::vector<uint8_t> dataStatus;
     std::vector<uint8_t> getData = {0x0, 0xc0, 0x0, 0x0, 0x0};
     LOG(D, "%s", redactHex("ENV2 APDU", apdu).c_str());
-    if (!params.nfc(apdu, dataStatus, false) || dataStatus.size() < 2) {
-      return std::vector<uint8_t>();
+    auto dataStatus = params.channel_->transceive(apdu);
+    LOG(D, "GET DATA %02x %02x", dataStatus.sw1, dataStatus.sw2);
+    if(!dataStatus.more()){
+      return {};
     }
     bool getMore = false;
     do
     {
       getMore = false;
-      bool status = params.nfc(getData, env2Res, false);
-      if(!status || env2Res.size() < 2) {
-        return std::vector<uint8_t>();
-      }
+      auto status = params.channel_->transceive(getData);
+      LOG(D, "GET DATA %02x %02x", dataStatus.sw1, dataStatus.sw2);
+      env2Res.swap(status.data);
       attestation_package.insert(attestation_package.end(), env2Res.begin(), env2Res.end());
       LOG(D, "Data Length: %d - pkg length: %d", env2Res.size(), attestation_package.size());
-      if(env2Res.size() >= 250 && (*(&env2Res.back() - 1) == 0x61)){
+      if(env2Res.size() >= 250 && status.more()){
         getMore = true;
-        attestation_package.pop_back();
-        attestation_package.pop_back();
-      } else if((*(&env2Res.back() - 1) == 0x90) && (*&env2Res.back() == 0x0)){
+      } else if(status.ok()){
         getMore = false;
         break;
-      }
+      } else return {};
       env2Res.clear();
     } while (getMore);
     LOG(D, "%s", redactHex("ATT PKG", attestation_package).c_str());
     TLV8 data(true);
     data.parse(attestation_package.data(), attestation_package.size());
-    tlv_it tlvStatus = data.find(0x90);
-    if (tlvStatus != data.end()) {
-      tlv_it tlvEncMsg = data.find(0x53);
-      if (tlvEncMsg == data.end()) {
-        LOG(E, "Envelope 2 response is missing required encrypted message (0x53).");
-        return std::vector<uint8_t>();
-      }
-      std::vector<uint8_t> encryptedMessage = tlvEncMsg->value;
-      auto decrypted_message = secureCtx.decryptMessageFromEndpoint(encryptedMessage);
-      if(decrypted_message.size() > 0){
-        return decrypted_message;
-      }
+    tlv_it tlvEncMsg = data.find(0x53);
+    if (tlvEncMsg == data.end()) {
+      LOG(E, "Envelope 2 response is missing required encrypted message (0x53).");
+      return std::vector<uint8_t>();
+    }
+    std::vector<uint8_t> encryptedMessage = tlvEncMsg->value;
+    auto decrypted_message = secureCtx.decryptMessageFromEndpoint(encryptedMessage);
+    if(decrypted_message.size() > 0){
+      return decrypted_message;
     }
   }
   return std::vector<uint8_t>();
@@ -565,19 +554,20 @@ AttestationResult DDKAttestationAuth::attest()
   xchApdu.insert(xchApdu.end(), std::get<0>(encryptedCmd).begin(), std::get<0>(encryptedCmd).end());
   LOG(V, "%s", redactHex("APDU CMD", xchApdu).c_str());
   std::vector<uint8_t> xchRes;
-  params.nfc(xchApdu, xchRes, false);
+  auto status = params.channel_->transceive(xchApdu);
+  xchRes.swap(status.data);
   LOG(D, "%s", redactHex("APDU RES", xchRes).c_str());
   AttestationResult result;
-  if (xchRes.size() > 2 && xchRes[xchRes.size() - 2] == 0x90)
+  if (status.ok())
   {
     auto env1Data = envelope1Cmd();
     std::vector<uint8_t> env1Res = std::get<0>(env1Data);
-    if (env1Res.size() > 2 && env1Res.data()[env1Res.size() - 2] == 0x90)
+    if (!env1Res.empty())
     {
       auto salt = attestation_salt(std::get<0>(env1Data), std::get<1>(env1Data));
       if(salt.size() > 0){
         auto env2DataDec = envelope2Cmd(salt);
-        if (env2DataDec.size() > 0)
+        if (!env2DataDec.empty())
         {
           auto verify_result = verify(env2DataDec);
           if (verify_result) {

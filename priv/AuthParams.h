@@ -1,10 +1,13 @@
 #pragma once
 #include <array>
-#include <functional>
 #include <vector>
 #include "DDKReaderData.h"
 #include "DigitalKeySecureContext.h"
 #include "SecureBuffer.h"
+
+namespace ddk {
+  class ApduChannel;
+}
 
 struct DDKAuthParams {
   DigitalKeyType type;
@@ -17,11 +20,11 @@ struct DDKAuthParams {
   std::vector<uint8_t> &readerIdentifier;
   std::vector<uint8_t> &aliroFCI;
   std::array<uint8_t, 2> &version;
-  const std::function<bool(std::vector<uint8_t>&, std::vector<uint8_t>&, bool)>& nfc;
   
   std::vector<uint8_t> *reader_private_key{};
   SecureBuffer<32> *readerEphPrivKey{};
   SecureBuffer<65> *readerEphPubKey{};
   std::array<uint8_t, 2> &flags;
   DigitalKeySecureContext *context = nullptr;
+  ddk::ApduChannel* channel_ = nullptr;
 };
