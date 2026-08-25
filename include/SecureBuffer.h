@@ -22,6 +22,7 @@ inline void secure_zero(void* p, size_t len) {
 
 template <size_t N>
 struct SecureBuffer {
+    using value_type = uint8_t;
     std::array<uint8_t, N> raw_data{};
 
     SecureBuffer() = default;
