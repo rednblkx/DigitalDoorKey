@@ -4,6 +4,7 @@
 #include "DDKReaderData.h" 
 #include "ScbSecureChannel.h"
 #include "ddk/store/CredentialStore.h"
+#include "ddk/store/Issuer.h"
 
 /**
  * Result of the Attestation (Initial Pairing/Handshake) flow.

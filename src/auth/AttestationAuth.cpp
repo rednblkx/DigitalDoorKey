@@ -1,6 +1,5 @@
 #include "AttestationAuth.h"
 #include "AuthResults.hpp"
-#include "ddk/store/CredentialStore.h"
 #include "ndef.h"
 #include "simple_tlv.hpp"
 #include "TLV8.hpp"

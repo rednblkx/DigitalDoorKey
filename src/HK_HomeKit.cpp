@@ -3,6 +3,8 @@
 #include "ddk/homekey/HapTags.h"
 #include "TLV8.hpp"
 #include "DDKLogging.h"
+#include "ddk/store/ReaderIdentity.h"
+#include "ddk/store/Issuer.h"
 #include <mbedtls/ecp.h>
 #include <mbedtls/sha256.h>
 #include <mbedtls/sha1.h>

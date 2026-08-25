@@ -1,110 +1,23 @@
 #include "StandardAuth.h"
+#include "ddk/store/ReaderIdentity.h"
 #include "AuthResults.hpp"
 #include "CommonCryptoUtils.h"
 #include "ScbSecureChannel.h"
 #include "GcmSecureChannel.h"
 #include "DDKReaderData.h"
-#include "ddk/store/CredentialStore.h"
 #include "ddk/transport/ApduChannel.h"
 #include "simple_tlv.hpp"
 #include "x963kdf.h"
 #include "DDKLogging.h"
+#include "HomeKeyKeySchedule.h"
+#include "AliroKeySchedule.h"
 #include <iterator>
 #include <memory>
-#include <mbedtls/hkdf.h>
 #include <mbedtls/ecp.h>
 #include <mbedtls/bignum.h>
-#include <TLV8.hpp>
 #include <mbedtls/ecdsa.h>
+#include <TLV8.hpp>
 #include <vector>
-
-constexpr char ALIRO_CTX_PERSISTENT_ASTR[] = "Persistent**";
-constexpr char HK_CTX_PERSISTENT_ASTR[] = "Persistent";
-constexpr char ALIRO_CTX_VOLATILE_ASTR[] = "Volatile****";
-constexpr char HK_CTX_VOLATILE_ASTR[] = "Volatile";
-
-/**
- * The function `Auth1_keying_material` generates keying material using various input data and the HKDF
- * algorithm.
- *
- * @param keyingMaterial A pointer to the buffer where the generated keying material will be stored.
- * @param context The "context" parameter is a string that represents the context or additional
- * information for the authentication process. It is used as input to generate the keying material.
- * @param out The `out` parameter is a pointer to a buffer where the generated keying material will be
- * stored. The size of this buffer is specified by the `outLen` parameter.
- * @param outLen The parameter `outLen` represents the length of the output buffer `out` where the
- * generated keying material will be stored.
- */
-template<typename Container>
-void DDKStdAuth::Auth1_keying_material(std::array<uint8_t,32> &keyingMaterial, std::string_view context, Container &out)
-{
-  std::vector<uint8_t> dataMaterial;
-  if (params.type == kHomeKey) {
-    uint8_t supported_vers[6] = {0x5c, 0x04, 0x02, 0x0, 0x01, 0x0};
-    dataMaterial.reserve(params.readerEphX.size() + params.endpointEphX.size() + params.transactionIdentifier.size() + 1 + params.flags.size() + context.size() + params.version.size() + sizeof(supported_vers));
-    dataMaterial.insert(dataMaterial.end(), std::make_move_iterator(params.readerEphX.begin()), std::make_move_iterator(params.readerEphX.end()));
-    dataMaterial.insert(dataMaterial.end(), std::make_move_iterator(params.endpointEphX.begin()), std::make_move_iterator(params.endpointEphX.end()));
-    dataMaterial.insert(dataMaterial.end(), std::make_move_iterator(params.transactionIdentifier.begin()), std::make_move_iterator(params.transactionIdentifier.end()));
-    dataMaterial.push_back(0x5E);
-    dataMaterial.push_back(params.flags[0]);
-    dataMaterial.push_back(params.flags[1]);
-    dataMaterial.insert(dataMaterial.end(), (uint8_t*)context.begin(), (uint8_t*)context.end());
-    dataMaterial.push_back(0x5C);
-    dataMaterial.push_back(static_cast<uint8_t>(params.version.size()));
-    dataMaterial.insert(dataMaterial.end(), params.version.begin(), params.version.end());
-    dataMaterial.insert(dataMaterial.end(), supported_vers, supported_vers + sizeof(supported_vers));
-    LOG(D, "%s", redactHex("DATA Material", dataMaterial).c_str());
-    mbedtls_hkdf(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), NULL, 0, keyingMaterial.data(), 32, dataMaterial.data(), dataMaterial.size(), out.data(), out.size());
-  }
-  if (params.type == kAliro) {
-    dataMaterial.reserve(params.store.reader_identity().public_key_x.size() + context.size() + params.readerIdentifier.size() + params.version.size() + params.readerEphX.size() + params.transactionIdentifier.size() + params.aliroFCI.size());
-    LOG(D, "%s", redactHex("readerPublicKeyX", params.store.reader_identity().public_key_x).c_str());
-    dataMaterial.insert(dataMaterial.end(), params.store.reader_identity().public_key_x.begin(), params.store.reader_identity().public_key_x.end());
-
-    LOG(D, "context: %s", context.data());
-    dataMaterial.insert(dataMaterial.end(), context.begin(), context.end());
-
-    LOG(D, "%s", redactHex("readerIdentifier", params.readerIdentifier).c_str());
-    dataMaterial.insert(dataMaterial.end(), params.readerIdentifier.begin(), params.readerIdentifier.end());
-
-    LOG(D, "transport_type: 0x%02X", 0x5E);
-    dataMaterial.push_back(0x5E);
-
-    LOG(D, "protocol_version TLV: 5C %02X %02X%02X", params.version.size(),
-        params.version[0], params.version[1]);
-    dataMaterial.push_back(0x5C);
-    dataMaterial.push_back(params.version.size());
-    dataMaterial.insert(dataMaterial.end(), params.version.begin(), params.version.end());
-
-    LOG(D, "%s", redactHex("readerEphX", params.readerEphX).c_str());
-    dataMaterial.insert(dataMaterial.end(), params.readerEphX.begin(), params.readerEphX.end());
-
-    LOG(D, "%s", redactHex("transactionIdentifier", params.transactionIdentifier).c_str());
-    dataMaterial.insert(dataMaterial.end(), params.transactionIdentifier.begin(), params.transactionIdentifier.end());
-
-    LOG(D, "transaction_flags: 0x01, transaction_code: 0x01");
-    dataMaterial.push_back(params.flags[0]);
-    dataMaterial.push_back(params.flags[1]);
-
-    LOG(D, "%s", redactHex("fciProprietaryTemplate", params.aliroFCI).c_str());
-    dataMaterial.push_back(0xA5);
-    dataMaterial.push_back(static_cast<uint8_t>(params.aliroFCI.size()));
-    dataMaterial.insert(dataMaterial.end(), params.aliroFCI.begin(), params.aliroFCI.end());
-
-    if (context == ALIRO_CTX_PERSISTENT_ASTR) {
-        LOG(I, "%s", redactHex("ep_pk", *epPkX).c_str());
-        dataMaterial.insert(dataMaterial.end(), epPkX->begin(), epPkX->end());
-    }
-    LOG(D, "%s", redactHex("HKDF Salt", dataMaterial).c_str());
-    mbedtls_hkdf(
-      mbedtls_md_info_from_type(MBEDTLS_MD_SHA256),
-      dataMaterial.data(), dataMaterial.size(),
-      keyingMaterial.data(), 32,
-      params.endpointEphX.data(), params.endpointEphX.size(),
-      out.data(), out.size()
-    );
-  }
-}
 
 DDKStdAuth::DDKStdAuth(DDKAuthParams &params) : params(params) {
 }
@@ -166,64 +79,57 @@ StandardAuthResult DDKStdAuth::attest()
   LOG(D, "%s", redactHex("Auth1 APDU", apdu).c_str());
   auto response = params.channel_->transceive(apdu);
   LOG(D, "%s", redactHex("Auth1 Response", response.data).c_str());
-  std::array<uint8_t,32> persistentKey{};
-  std::vector<uint8_t> volatileKey(48);
-  if (params.type == kAliro){ volatileKey.resize(160); }
   uint8_t sharedKey[32];
 
   CommonCryptoUtils::get_shared_key(*params.readerEphPrivKey, params.endpointEphPubKey, sharedKey, sizeof(sharedKey));
   LOG_HEX(D, "Shared Key", sharedKey);
 
   X963KDF kdf(MBEDTLS_MD_SHA256, 32, params.transactionIdentifier.data(), 16);
-
   std::array<uint8_t,32> derivedKey{};
-  std::array<uint8_t,32> skDevice{};
-  std::array<uint8_t,32> skReader{};
   kdf.derive(sharedKey, sizeof(sharedKey), derivedKey.data());
   LOG_HEX(D, "X963KDF Derived Key", derivedKey);
+
+  std::array<uint8_t,32> persistentKey{};
+  std::vector<uint8_t> volatileKey;
+  std::array<uint8_t,32> skDevice{};
+  std::array<uint8_t,32> skReader{};
+
   if (params.type == kHomeKey) {
-    Auth1_keying_material(derivedKey, HK_CTX_PERSISTENT_ASTR, persistentKey);
-    Auth1_keying_material(derivedKey, HK_CTX_VOLATILE_ASTR, volatileKey);
+    HomeKeyKeySchedule schedule;
+    HomeKeyKeySchedule::SessionInput input{
+      params.store.reader_identity().public_key_x,
+      params.readerIdentifier,
+      params.readerEphX,
+      params.endpointEphX,
+      params.transactionIdentifier,
+      params.version,
+      params.flags,
+    };
+    auto ks = schedule.derive_standard(input, derivedKey);
+    persistentKey = ks.persistent_key;
+    volatileKey = std::move(ks.volatile_key);
   }
+
   if (params.type == kAliro) {
-    Auth1_keying_material(derivedKey, ALIRO_CTX_VOLATILE_ASTR, volatileKey);
-    std::memcpy(skReader.data(), volatileKey.data(), 32);
-    std::memcpy(skDevice.data(), volatileKey.data() + 32, 32);
-
-    // std::memcpy(step_up_material.data(), volatileKey.data() + 64, 32);
-    // std::memcpy(ble_material.data(), volatileKey.data(), 32);
-    // std::memcpy(ur_sk.data(), volatileKey.data() + 0x80, 32);
-    // std::vector<uint8_t> saltInput(32, 0);
-    // mbedtls_hkdf(
-    //     mbedtls_md_info_from_type(MBEDTLS_MD_SHA256),
-    //     saltInput.data(), saltInput.size(),
-    //     step_up_material.data(), step_up_material.size(),
-    //     reinterpret_cast<const unsigned char *>("SKReader"), 8,
-    //     step_up_sk_reader.data(), step_up_sk_reader.size()
-    //     );
-    // mbedtls_hkdf(
-    //     mbedtls_md_info_from_type(MBEDTLS_MD_SHA256),
-    //     saltInput.data(), saltInput.size(),
-    //     step_up_material.data(), step_up_material.size(),
-    //     reinterpret_cast<const unsigned char *>("SKDevice"), 8,
-    //     step_up_sk_device.data(), step_up_sk_device.size());
-    // mbedtls_hkdf(
-    //     mbedtls_md_info_from_type(MBEDTLS_MD_SHA256),
-    //     saltInput.data(), saltInput.size(),
-    //     ble_material.data(),ble_material.size(),
-    //     reinterpret_cast<const unsigned char *>("BleSKReader"), 8,
-    //     ble_sk_reader.data(), ble_sk_reader.size()
-    //     );
-    // mbedtls_hkdf(
-    //     mbedtls_md_info_from_type(MBEDTLS_MD_SHA256),
-    //     saltInput.data(), saltInput.size(),
-    //     ble_material.data(),ble_material.size(),
-    //     reinterpret_cast<const unsigned char *>("BleSKDevice"), 8,
-    //     ble_sk_device.data(), ble_sk_device.size());
-
-    LOG(D, "Exchange SK Reader - %s", redactHex("", skReader.data(), 32).c_str());
-    LOG(D, "Exchange SK Device - %s", redactHex("", skDevice.data(), 32).c_str());
+    AliroKeySchedule schedule;
+    AliroKeySchedule::SessionInput input{
+      params.store.reader_identity().public_key_x,
+      params.readerIdentifier,
+      params.readerEphX,
+      params.endpointEphX,
+      params.transactionIdentifier,
+      params.version,
+      params.flags,
+      params.aliroFCI,
+      0x5E,
+      {},
+    };
+    auto vol = schedule.derive_volatile(input, derivedKey);
+    skReader = vol.exchange_sk_reader;
+    skDevice = vol.exchange_sk_device;
+    // persistentKey stays zero-initialized — derived after signature verify
   }
+
   LOG_HEX(D, "Persistent Key", persistentKey);
   LOG_HEX(D, "Volatile Key", volatileKey);
   std::unique_ptr<ScbSecureChannel> scb_context;
@@ -273,7 +179,6 @@ StandardAuthResult DDKStdAuth::attest()
                   LOG(D, "STD_AUTH: Found Matching Endpoint, ID: %s", redactHex("", endpoint.id.data(), endpoint.id.size()).c_str());
                   foundEndpoint = &endpoint;
                   foundIssuer = &issuer;
-                  epPkX = &endpoint.public_key_x;
                 }
               }
             }
@@ -289,7 +194,6 @@ StandardAuthResult DDKStdAuth::attest()
                   foundEndpoint = &endpoint;
                   LOG(D, "Found matching endpoint with public key: %s",
                       redactHex("", devicePk.data(), devicePk.size()).c_str());
-                  epPkX = &endpoint.public_key_x;
                   break;
                 }
               }
@@ -347,8 +251,24 @@ StandardAuthResult DDKStdAuth::attest()
         if (signature_result == 0)
         {
           if (params.type == kAliro) {
-            Auth1_keying_material(derivedKey, ALIRO_CTX_PERSISTENT_ASTR, persistentKey);
+            AliroKeySchedule schedule;
+            AliroKeySchedule::SessionInput input{
+              params.store.reader_identity().public_key_x,
+              params.readerIdentifier,
+              params.readerEphX,
+              params.endpointEphX,
+              params.transactionIdentifier,
+              params.version,
+              params.flags,
+              params.aliroFCI,
+              0x5E,
+              {},
+            };
+            persistentKey = schedule.derive_persistent(
+                input, derivedKey, foundEndpoint->public_key_x);
           }
+          // HomeKey persistent was already derived above — nothing to do here
+
           result.issuer = foundIssuer;
           result.endpoint = foundEndpoint;
           result.scb_context = std::move(scb_context);

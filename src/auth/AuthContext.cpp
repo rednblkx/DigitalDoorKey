@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <DDKAuthContext.h>
+#include "ddk/store/ReaderIdentity.h"
 #include "AuthResults.hpp"
 #include "CommonCryptoUtils.h"
 #include "DDKReaderData.h"
@@ -7,7 +8,6 @@
 #include "StandardAuth.h"
 #include "AttestationAuth.h"
 #include "AuthParams.h"
-#include "ddk/store/CredentialStore.h"
 #include "simple_tlv.hpp"
 #include "DDKLogging.h"
 #if defined(CONFIG_IDF_CMAKE)
