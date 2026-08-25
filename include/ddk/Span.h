@@ -11,6 +11,7 @@ inline constexpr std::size_t dynamic_extent = std::dynamic_extent;
 }
 #else
 namespace ddk {
+
 inline constexpr std::size_t dynamic_extent = static_cast<std::size_t>(-1);
 
 template <typename T, std::size_t Extent = dynamic_extent>
@@ -36,21 +37,30 @@ public:
     constexpr span(element_type (&arr)[N]) noexcept
         : data_(arr), size_(N) {}
 
+    // Container constructor — matches std::span's R&& semantics:
+    //   - lvalue containers: always allowed (const or mutable elements)
+    //   - rvalue containers: only when element_type is const
+    //     (read-only view of a temporary is safe for the duration of
+    //     the full expression; a mutable view would dangle)
     template <typename C,
               typename = std::enable_if_t<
                   !std::is_same_v<std::decay_t<C>, span> &&
-                  std::is_convertible_v<decltype(std::declval<C>().data()), pointer>>>
-    constexpr span(C& c) noexcept : data_(c.data()), size_(c.size()) {}
+                  std::is_convertible_v<
+                      decltype(std::declval<C&>().data()), pointer> &&
+                  (std::is_lvalue_reference_v<C> ||
+                   std::is_const_v<element_type>)>>
+    constexpr span(C&& c) noexcept
+        : data_(c.data()), size_(static_cast<size_type>(c.size())) {}
 
     constexpr iterator begin() const { return data_; }
     constexpr iterator end()   const { return data_ + size_; }
     constexpr pointer   data() const { return data_; }
-    constexpr size_type  size() const { return size_; }
-    constexpr size_type  size_bytes() const { return size_ * sizeof(T); }
-    constexpr bool       empty() const { return size_ == 0; }
-    constexpr reference  operator[](size_type idx) const { return data_[idx]; }
-    constexpr reference  front() const { return data_[0]; }
-    constexpr reference  back()  const { return data_[size_ - 1]; }
+    constexpr size_type size() const { return size_; }
+    constexpr size_type size_bytes() const { return size_ * sizeof(T); }
+    constexpr bool      empty()  const { return size_ == 0; }
+    constexpr reference operator[](size_type idx) const { return data_[idx]; }
+    constexpr reference front() const { return data_[0]; }
+    constexpr reference back()  const { return data_[size_ - 1]; }
 
     constexpr span<element_type, dynamic_extent> first(size_type n) const {
         return {data_, n};
@@ -60,12 +70,14 @@ public:
     }
     constexpr span<element_type, dynamic_extent> subspan(
         size_type offset, size_type count = dynamic_extent) const {
-        return {data_ + offset, count == dynamic_extent ? size_ - offset : count};
+        return {data_ + offset,
+                count == dynamic_extent ? size_ - offset : count};
     }
 
 private:
     pointer   data_;
     size_type size_;
 };
+
 }  // namespace ddk
 #endif
