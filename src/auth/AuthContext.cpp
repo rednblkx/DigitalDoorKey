@@ -7,6 +7,7 @@
 #include "StandardAuth.h"
 #include "AttestationAuth.h"
 #include "AuthParams.h"
+#include "ddk/store/CredentialStore.h"
 #include "simple_tlv.hpp"
 #include "DDKLogging.h"
 #if defined(CONFIG_IDF_CMAKE)
@@ -55,12 +56,10 @@ std::vector<uint8_t> DDKAuthenticationContext::commandFlow(CommandFlowStatus sta
 DDKAuthenticationContext::DDKAuthenticationContext(
     DigitalKeyType type,
     std::shared_ptr<ddk::ApduChannel> transport,
-    readerData_t &readerData,
-    const std::function<void(const readerData_t&)> &save_cb)
+    ddk::CredentialStore& store)
   : type(type),
-    readerData(readerData),
-    channel_(std::move(transport)),
-    save_cb(save_cb)
+    store(store),
+    channel_(std::move(transport))
 {
   if (type == DigitalKeyType::kAliro) {
     protocolVersion = {0x00, 0x09};
@@ -76,9 +75,9 @@ DDKAuthenticationContext::DDKAuthenticationContext(
 #else
   randombytes(transactionIdentifier.data(), 16);
 #endif
-  readerIdentifier.reserve(readerData.reader_gid.size() + readerData.reader_id.size());
-  readerIdentifier.insert(readerIdentifier.begin(), readerData.reader_gid.begin(), readerData.reader_gid.end());
-  readerIdentifier.insert(readerIdentifier.end(), readerData.reader_id.begin(), readerData.reader_id.end());
+  readerIdentifier.reserve(store.reader_identity().group_identifier.size() + store.reader_identity().sub_identifier.size());
+  readerIdentifier.insert(readerIdentifier.begin(), store.reader_identity().group_identifier.begin(), store.reader_identity().group_identifier.end());
+  readerIdentifier.insert(readerIdentifier.end(), store.reader_identity().sub_identifier.begin(), store.reader_identity().sub_identifier.end());
   readerEphX = CommonCryptoUtils::get_x(readerEphPubKey);
   auto stopTime = std::chrono::high_resolution_clock::now();
   LOG(I, "Initialization Time: %lli ms", std::chrono::duration_cast<std::chrono::milliseconds>(stopTime - startTime).count());
@@ -138,21 +137,20 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
 
   apdu.insert(apdu.end(), std::make_move_iterator(fastTlv.begin()), std::make_move_iterator(fastTlv.end()));
   LOG(D, "%s", redactHex("Auth0 APDU", apdu).c_str());
-  auto resp = channel_->transceive(apdu);
+  auto response = channel_->transceive(apdu);
 #if defined(CONFIG_IDF_CMAKE)
-  ESP_LOG_BUFFER_HEX_LEVEL(TAG, resp.data.data(), resp.data.size(), ESP_LOG_VERBOSE);
+  ESP_LOG_BUFFER_HEX_LEVEL(TAG, response.data.data(), response.data.size(), ESP_LOG_VERBOSE);
 #else
   for (int i = 0; i < response.size(); i++) {
     printf("%02X", response[i]);
   }
 #endif
-  LOG(D, "%s", redactHex("Auth0 Response", resp.data).c_str());
+  LOG(D, "%s", redactHex("Auth0 Response", response.data).c_str());
   AuthContextResult result;
-  if (resp.ok() && resp.data.size() > 64 && resp.data[0] == 0x86) {
+  if (response.ok() && response.data.size() > 64 && response.data[0] == 0x86) {
     DDKAuthParams auth_params{
       type,
-      readerData.issuers,
-      readerData.reader_pk_x,
+      store,
       readerEphX,
       endpointEphPubKey,
       endpointEphX,
@@ -162,13 +160,12 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
       protocolVersion,
       nullptr,
       nullptr,
-      nullptr,
       flags,
       nullptr,
       channel_.get()
     };
     TLV8 Auth0Res;
-    Auth0Res.parse(resp.data.data(), resp.data.size());
+    Auth0Res.parse(response.data.data(), response.data.size());
     const tlv_t *pubkey = Auth0Res.expect(kEndpoint_Public_Key);
     // SEC1 uncompressed P-256 point: 0x04 prefix || X (32 bytes) || Y (32 bytes).
     constexpr size_t kP256UncompressedPublicKeySize = 1 + 32 + 32;
@@ -180,8 +177,8 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
     }
     endpointEphPubKey = pubkey->value;
     endpointEphX = CommonCryptoUtils::get_x(endpointEphPubKey);
-    hkIssuer_t *foundIssuer = nullptr;
-    hkEndpoint_t *foundEndpoint = nullptr;
+    ddk::Issuer *foundIssuer = nullptr;
+    ddk::Endpoint *foundEndpoint = nullptr;
     KeyFlow flowUsed = kFlowFailed;
     if (hkFlow == kFlowFAST) {
       const tlv_t *crypt = Auth0Res.expect(kAuth0_Cryptogram);
@@ -192,14 +189,13 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
         {
           foundIssuer = fastAuth.issuer;
           foundEndpoint = fastAuth.endpoint;
-          LOG(D, "Endpoint %s Authenticated via FAST Flow", redactHex("", foundEndpoint->endpoint_id.data(), foundEndpoint->endpoint_id.size()).c_str());
+          LOG(D, "Endpoint %s Authenticated via FAST Flow", redactHex("", foundEndpoint->id.data(), foundEndpoint->id.size()).c_str());
         }
       } else {
         LOG(W, "Auth0 cryptogram missing; moving to STANDARD Flow");
       }
     }
     if(foundEndpoint == nullptr){
-      auth_params.reader_private_key = &readerData.reader_sk;
       auth_params.readerEphPrivKey = &readerEphPrivKey;
       auto stdAuth = DDKStdAuth(auth_params).attest();
       if (stdAuth) {
@@ -207,10 +203,10 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
         foundEndpoint = stdAuth.endpoint;
         if ((flowUsed = stdAuth.flow) == kFlowSTANDARD)
         {
-          LOG(D, "Endpoint %s Authenticated via STANDARD Flow", redactHex("", foundEndpoint->endpoint_id.data(), foundEndpoint->endpoint_id.size()).c_str());
-          foundEndpoint->endpoint_prst_k.clear();
-          foundEndpoint->endpoint_prst_k.insert(foundEndpoint->endpoint_prst_k.begin(), stdAuth.shared_secret.begin(), stdAuth.shared_secret.end());
-          LOG_HEX(V, "New Persistent Key", foundEndpoint->endpoint_prst_k);
+          LOG(D, "Endpoint %s Authenticated via STANDARD Flow", redactHex("", foundEndpoint->id.data(), foundEndpoint->id.size()).c_str());
+          foundEndpoint->persistent_key.clear();
+          foundEndpoint->persistent_key.insert(foundEndpoint->persistent_key.begin(), stdAuth.shared_secret.begin(), stdAuth.shared_secret.end());
+          LOG_HEX(V, "New Persistent Key", foundEndpoint->persistent_key);
         }
       }
       if ((stdAuth.flow == kFlowNext || hkFlow == kFlowATTESTATION) &&
@@ -220,29 +216,29 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
         if (attestation && (flowUsed = attestation.flow) == kFlowATTESTATION) {
           LOG(I, "ATTESTATION Flow complete, transaction took %lli ms", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - startTime).count());
           if(foundEndpoint != nullptr){
-            foundEndpoint->endpoint_prst_k.clear();
-            foundEndpoint->endpoint_prst_k.insert(foundEndpoint->endpoint_prst_k.begin(), stdAuth.shared_secret.begin(), stdAuth.shared_secret.end());
+            foundEndpoint->persistent_key.clear();
+            foundEndpoint->persistent_key.insert(foundEndpoint->persistent_key.begin(), stdAuth.shared_secret.begin(), stdAuth.shared_secret.end());
           } else {
-            hkEndpoint_t endpoint;
+            ddk::Endpoint endpoint;
             foundIssuer = attestation.issuer;
-            std::array<uint8_t,65> devicePubKey = attestation.device_pub_key;
+            const std::array<uint8_t,65> devicePubKey = attestation.device_pub_key;
             std::vector<uint8_t> deviceKeyX = CommonCryptoUtils::get_x(attestation.device_pub_key);
-            endpoint.endpoint_pk_x = deviceKeyX;
+            endpoint.public_key_x = deviceKeyX;
             std::vector<uint8_t> eId = CommonCryptoUtils::hash_identifier_sha1({devicePubKey.begin(), devicePubKey.end()});
-            endpoint.endpoint_id = std::vector<uint8_t>{eId.begin(), eId.begin() + 6};
-            endpoint.endpoint_pk.assign(devicePubKey.begin(), devicePubKey.end());
-            endpoint.endpoint_prst_k.clear();
-            endpoint.endpoint_prst_k.insert(endpoint.endpoint_prst_k.begin(), stdAuth.shared_secret.begin(), stdAuth.shared_secret.end());
+            endpoint.id = std::vector<uint8_t>{eId.begin(), eId.begin() + 6};
+            endpoint.public_key.assign(devicePubKey.begin(), devicePubKey.end());
+            endpoint.persistent_key.clear();
+            endpoint.persistent_key.assign(stdAuth.shared_secret.begin(), stdAuth.shared_secret.end());
             foundEndpoint = &(*foundIssuer->endpoints.emplace(foundIssuer->endpoints.end(),endpoint));
           }
           if(foundEndpoint != nullptr){
-            LOG_HEX(V, "New Persistent Key", foundEndpoint->endpoint_prst_k);
-            LOG(D, "Endpoint %s Authenticated via ATTESTATION Flow", redactHex("", foundEndpoint->endpoint_id.data(), foundEndpoint->endpoint_id.size()).c_str());
+            LOG_HEX(V, "New Persistent Key", foundEndpoint->persistent_key);
+            LOG(D, "Endpoint %s Authenticated via ATTESTATION Flow", redactHex("", foundEndpoint->id.data(), foundEndpoint->id.size()).c_str());
           }
-        }
+        } else LOG(E, "STEPUP FAILED");
       }
       if(flowUsed >= kFlowSTANDARD){
-        save_cb(readerData);
+        store.save();
       }
     }
     if(foundIssuer != nullptr && foundEndpoint != nullptr && flowUsed != kFlowFailed) {
@@ -256,14 +252,14 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
           (cmdFlowStatus.size() >= 2 && cmdFlowStatus[0] == 0x90 && cmdFlowStatus[1] == 0x00))
       {
         LOG(I, "Endpoint authenticated, transaction took %lli ms", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - startTime).count());
-        result.issuer_id = foundIssuer->issuer_id;
-        result.endpoint_id = foundEndpoint->endpoint_id;
+        result.issuer_id = foundIssuer->id;
+        result.endpoint_id = foundEndpoint->id;
         result.flow = flowUsed;
         return result;
       } else {
         LOG(E, "Control Flow Response not 0x90!, %s", redactHex("", cmdFlowStatus.data(), cmdFlowStatus.size()).c_str());
-        result.issuer_id = foundIssuer->issuer_id;
-        result.endpoint_id = foundEndpoint->endpoint_id;
+        result.issuer_id = foundIssuer->id;
+        result.endpoint_id = foundEndpoint->id;
         result.flow = kFlowFailed;
         return result;
       }

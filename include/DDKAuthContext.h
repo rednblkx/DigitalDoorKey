@@ -1,8 +1,8 @@
 #pragma once
+#include "ddk/store/CredentialStore.h"
 #include "SecureBuffer.h"
 #include "DDKReaderData.h"
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <vector>
 #include "ddk/transport/ApduChannel.h"
@@ -21,14 +21,13 @@ class DDKAuthenticationContext
 private:
   const char *TAG = "AuthCtx";
   DigitalKeyType type;
-  readerData_t &readerData;
+  ddk::CredentialStore& store;
   SecureBuffer<32> readerEphX;
   SecureBuffer<32> readerEphPrivKey;
   SecureBuffer<65> readerEphPubKey;
   SecureBuffer<65> endpointEphPubKey;
   SecureBuffer<32> endpointEphX;
   std::shared_ptr<ddk::ApduChannel> channel_;
-  const std::function<void(const readerData_t&)> &save_cb;
   SecureBuffer<16> transactionIdentifier;
   std::vector<uint8_t> readerIdentifier;
   std::vector<uint8_t> commandFlow(CommandFlowStatus status);
@@ -38,8 +37,7 @@ private:
 public:
   DDKAuthenticationContext(DigitalKeyType type,
       std::shared_ptr<ddk::ApduChannel> transport,
-      readerData_t &readerData,
-      const std::function<void(const readerData_t &)> &save_cb);
+      ddk::CredentialStore& store);
 
   AuthContextResult authenticate(KeyFlow);
 };

@@ -6,6 +6,7 @@
 
 #include "TLV8.hpp"
 #include "CommonCryptoUtils.h"
+#include "ddk/store/CredentialStore.h"
 
 /**
  * The function `Auth0_keying_material` generates keying material using the HKDF algorithm based on
@@ -29,7 +30,7 @@ void DDKFastAuth::Auth0_keying_material(const char *context, const std::vector<u
   constexpr uint8_t hk_versions[6] = {0x5c, 0x04, 0x02, 0x0, 0x01, 0x0};
   std::vector<uint8_t> dataMaterial;
   dataMaterial.reserve(32 + strlen(context) + params.readerIdentifier.size() + 32 + 1 + sizeof(hk_versions) + sizeof(sel_version_tlv) + params.readerEphX.size() + 16 + 2 + params.endpointEphX.size());
-  dataMaterial.insert(dataMaterial.end(), std::make_move_iterator(params.reader_pk_x.begin()), std::make_move_iterator(params.reader_pk_x.end()));
+  dataMaterial.insert(dataMaterial.end(), std::make_move_iterator(params.store.reader_identity().public_key_x.begin()), std::make_move_iterator(params.store.reader_identity().public_key_x.end()));
   dataMaterial.insert(dataMaterial.end(), (uint8_t *)context, (uint8_t*)context + strlen(context));
   dataMaterial.insert(dataMaterial.end(), std::make_move_iterator(params.readerIdentifier.begin()), std::make_move_iterator(params.readerIdentifier.end()));
   if (params.type == kHomeKey) {
@@ -78,25 +79,25 @@ void DDKFastAuth::Auth0_keying_material(const char *context, const std::vector<u
  *
  * @return a pointer to an object of type `hkEndpoint_t`.
  */
-std::tuple<hkIssuer_t *, hkEndpoint_t *> DDKFastAuth::find_endpoint_by_cryptogram(std::vector<uint8_t> &cryptogram)
+std::tuple<ddk::Issuer *, ddk::Endpoint *> DDKFastAuth::find_endpoint_by_cryptogram(std::vector<uint8_t> &cryptogram)
 {
-  hkEndpoint_t *foundEndpoint = nullptr;
-  hkIssuer_t *foundIssuer = nullptr;
+  ddk::Endpoint *foundEndpoint = nullptr;
+  ddk::Issuer *foundIssuer = nullptr;
   constexpr size_t kHomeKeyCryptogramLength = 16;
   if (params.type == kHomeKey && cryptogram.size() != kHomeKeyCryptogramLength)
   {
     LOG(W, "Invalid Home Key cryptogram length: %zu", cryptogram.size());
     return std::make_tuple(foundIssuer, foundEndpoint);
   }
-  for (auto &&issuer : params.issuers)
+  for (auto &&issuer : params.store.issuers())
   {
-    LOG(V, "Issuer: %s, Endpoints: %d", redactHex("", issuer.issuer_id.data(), issuer.issuer_id.size()).c_str(), issuer.endpoints.size());
+    LOG(V, "Issuer: %s, Endpoints: %d", redactHex("", issuer.id.data(), issuer.id.size()).c_str(), issuer.endpoints.size());
     for (auto &&endpoint : issuer.endpoints)
     {
-      if(endpoint.endpoint_prst_k.size() == 0) continue;
-      LOG(V, "Endpoint: %s, Persistent Key: %s", redactHex("", endpoint.endpoint_id.data(), endpoint.endpoint_id.size()).c_str(), redactHex("PK", endpoint.endpoint_prst_k.data(), endpoint.endpoint_prst_k.size()).c_str());
+      if(endpoint.persistent_key.size() == 0) continue;
+      LOG(V, "Endpoint: %s, Persistent Key: %s", redactHex("", endpoint.id.data(), endpoint.id.size()).c_str(), redactHex("PK", endpoint.persistent_key.data(), endpoint.persistent_key.size()).c_str());
       std::vector<uint8_t> hkdf(params.type == kHomeKey ? 58 : 160);
-      Auth0_keying_material("VolatileFast", endpoint.endpoint_pk_x, endpoint.endpoint_prst_k, hkdf.data(), hkdf.size());
+      Auth0_keying_material("VolatileFast", endpoint.public_key_x, endpoint.persistent_key, hkdf.data(), hkdf.size());
       LOG_HEX(V, "HKDF Derived Key", hkdf);
       if (params.type == kAliro) {
         std::array<uint8_t,32> sk{};
@@ -126,7 +127,7 @@ std::tuple<hkIssuer_t *, hkEndpoint_t *> DDKFastAuth::find_endpoint_by_cryptogra
       if (params.type == kHomeKey) {
         if (CommonCryptoUtils::constant_time_compare(hkdf.data(), cryptogram.data(), 16))
         {
-          LOG(D, "Endpoint %s matches cryptogram", redactHex("", endpoint.endpoint_id.data(), endpoint.endpoint_id.size()).c_str());
+          LOG(D, "Endpoint %s matches cryptogram", redactHex("", endpoint.id.data(), endpoint.id.size()).c_str());
           foundIssuer = &issuer;
           foundEndpoint = &endpoint;
           break;
@@ -161,9 +162,9 @@ FastAuthResult DDKFastAuth::attest(std::vector<uint8_t> &encryptedMessage)
   FastAuthResult result;
   if (std::get<1>(foundData) != nullptr)
   {
-    LOG(D, "Endpoint %s Authenticated via FAST Flow", redactHex("", std::get<1>(foundData)->endpoint_id.data(), std::get<1>(foundData)->endpoint_id.size()).c_str());
-    result.issuer = std::get<hkIssuer_t *>(foundData);
-    result.endpoint = std::get<hkEndpoint_t*>(foundData);
+    LOG(D, "Endpoint %s Authenticated via FAST Flow", redactHex("", std::get<1>(foundData)->id.data(), std::get<1>(foundData)->id.size()).c_str());
+    result.issuer = std::get<ddk::Issuer *>(foundData);
+    result.endpoint = std::get<ddk::Endpoint*>(foundData);
     result.flow = kFlowFAST;
     return result;
   }

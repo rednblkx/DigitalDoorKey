@@ -4,6 +4,7 @@
 #include "DDKReaderData.h"
 #include "ScbSecureChannel.h"
 #include "SecureBuffer.h"
+#include "ddk/store/CredentialStore.h"
 
 namespace ddk {
   class ApduChannel;
@@ -11,8 +12,7 @@ namespace ddk {
 
 struct DDKAuthParams {
   DigitalKeyType type;
-  std::vector<hkIssuer_t> &issuers;
-  std::vector<uint8_t> &reader_pk_x;
+  ddk::CredentialStore &store;
   SecureBuffer<32> &readerEphX;
   SecureBuffer<65> &endpointEphPubKey;
   SecureBuffer<32> &endpointEphX;
@@ -21,7 +21,6 @@ struct DDKAuthParams {
   std::vector<uint8_t> &aliroFCI;
   std::array<uint8_t, 2> &version;
   
-  std::vector<uint8_t> *reader_private_key{};
   SecureBuffer<32> *readerEphPrivKey{};
   SecureBuffer<65> *readerEphPubKey{};
   std::array<uint8_t, 2> &flags;

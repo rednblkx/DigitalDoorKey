@@ -1,4 +1,3 @@
-#include "DDKReaderData.h"
 #include "AuthParams.h"
 #include "AuthResults.hpp"
 

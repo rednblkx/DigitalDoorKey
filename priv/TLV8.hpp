@@ -2,7 +2,6 @@
 
 #include <cstdio>
 #include <iostream>
-#include <list>      // Changed from forward_list
 #include <vector>    // For value storage
 #include <cstdint>
 #include <ostream>
@@ -34,7 +33,7 @@ struct tlv_t {
 };
 
 // --- Typedefs for Iterators ---
-using list_type = std::list<tlv_t>;
+using list_type = std::vector<tlv_t>;
 using tlv_it = list_type::iterator;
 using const_iterator = list_type::const_iterator;
 

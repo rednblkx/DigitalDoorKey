@@ -4,9 +4,11 @@
 #include "ScbSecureChannel.h"
 #include "GcmSecureChannel.h"
 #include "DDKReaderData.h"
+#include "ddk/store/CredentialStore.h"
+#include "ddk/transport/ApduChannel.h"
+#include "simple_tlv.hpp"
 #include "x963kdf.h"
 #include "DDKLogging.h"
-#include "simple_tlv.hpp"
 #include <iterator>
 #include <memory>
 #include <mbedtls/hkdf.h>
@@ -15,7 +17,6 @@
 #include <TLV8.hpp>
 #include <mbedtls/ecdsa.h>
 #include <vector>
-#include "ddk/transport/ApduChannel.h"
 
 constexpr char ALIRO_CTX_PERSISTENT_ASTR[] = "Persistent**";
 constexpr char HK_CTX_PERSISTENT_ASTR[] = "Persistent";
@@ -56,9 +57,9 @@ void DDKStdAuth::Auth1_keying_material(std::array<uint8_t,32> &keyingMaterial, s
     mbedtls_hkdf(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), NULL, 0, keyingMaterial.data(), 32, dataMaterial.data(), dataMaterial.size(), out.data(), out.size());
   }
   if (params.type == kAliro) {
-    dataMaterial.reserve(params.reader_pk_x.size() + context.size() + params.readerIdentifier.size() + params.version.size() + params.readerEphX.size() + params.transactionIdentifier.size() + params.aliroFCI.size());
-    LOG(D, "%s", redactHex("readerPublicKeyX", params.reader_pk_x).c_str());
-    dataMaterial.insert(dataMaterial.end(), params.reader_pk_x.begin(), params.reader_pk_x.end());
+    dataMaterial.reserve(params.store.reader_identity().public_key_x.size() + context.size() + params.readerIdentifier.size() + params.version.size() + params.readerEphX.size() + params.transactionIdentifier.size() + params.aliroFCI.size());
+    LOG(D, "%s", redactHex("readerPublicKeyX", params.store.reader_identity().public_key_x).c_str());
+    dataMaterial.insert(dataMaterial.end(), params.store.reader_identity().public_key_x.begin(), params.store.reader_identity().public_key_x.end());
 
     LOG(D, "context: %s", context.data());
     dataMaterial.insert(dataMaterial.end(), context.begin(), context.end());
@@ -146,7 +147,7 @@ StandardAuthResult DDKStdAuth::attest()
   std::copy(tlv5.begin(), tlv5.end(), std::back_inserter(stdTlv));
 #endif
 
-  std::vector<uint8_t> sigPoint = CommonCryptoUtils::signSharedInfo(stdTlv.data(), stdTlv.size(), params.reader_private_key->data(), params.reader_private_key->size());
+  std::vector<uint8_t> sigPoint = CommonCryptoUtils::signSharedInfo(stdTlv.data(), stdTlv.size(), params.store.reader_identity().private_key.data(), params.store.reader_identity().private_key.size());
   std::vector<uint8_t> sigTlv = simple_tlv(0x9E, sigPoint);
   std::vector<uint8_t> apdu{0x80, 0x81, 0x0, 0x0};
   if (params.type == kHomeKey) {
@@ -226,8 +227,8 @@ StandardAuthResult DDKStdAuth::attest()
   LOG_HEX(D, "Persistent Key", persistentKey);
   LOG_HEX(D, "Volatile Key", volatileKey);
   std::unique_ptr<ScbSecureChannel> scb_context;
-  hkEndpoint_t *foundEndpoint = nullptr;
-  hkIssuer_t *foundIssuer = nullptr;
+  ddk::Endpoint *foundEndpoint = nullptr;
+  ddk::Issuer *foundIssuer = nullptr;
   StandardAuthResult result;
   constexpr size_t standard_min_secure_response_size = 16 + 8;
   constexpr size_t aliro_min_secure_response_size = 16;
@@ -263,16 +264,16 @@ StandardAuthResult DDKStdAuth::attest()
               LOG(E, "TLV DATA INVALID!");
               goto err;
             }
-            for (auto &&issuer : params.issuers)
+            for (auto &&issuer : params.store.issuers())
             {
               for (auto &&endpoint : issuer.endpoints)
               {
-                if (std::equal(endpoint.endpoint_id.begin(), endpoint.endpoint_id.end(), device_identifier.begin()))
+                if (std::equal(endpoint.id.begin(), endpoint.id.end(), device_identifier.begin()))
                 {
-                  LOG(D, "STD_AUTH: Found Matching Endpoint, ID: %s", redactHex("", endpoint.endpoint_id.data(), endpoint.endpoint_id.size()).c_str());
+                  LOG(D, "STD_AUTH: Found Matching Endpoint, ID: %s", redactHex("", endpoint.id.data(), endpoint.id.size()).c_str());
                   foundEndpoint = &endpoint;
                   foundIssuer = &issuer;
-                  epPkX = &endpoint.endpoint_pk_x;
+                  epPkX = &endpoint.public_key_x;
                 }
               }
             }
@@ -281,14 +282,14 @@ StandardAuthResult DDKStdAuth::attest()
         if (params.type == kAliro) {
           if (auto pkItem = decryptedTlv.expect(0x5A)) {
             std::vector<uint8_t> devicePk = pkItem->value;
-            for (auto &issuer: params.issuers) {
+            for (auto &issuer: params.store.issuers()) {
               for (auto &endpoint: issuer.endpoints) {
-                if (devicePk.size() >= endpoint.endpoint_pk.size() && memcmp(devicePk.data(), endpoint.endpoint_pk.data(), endpoint.endpoint_pk.size()) == 0) {
+                if (devicePk.size() >= endpoint.public_key.size() && memcmp(devicePk.data(), endpoint.public_key.data(), endpoint.public_key.size()) == 0) {
                   foundIssuer = &issuer;
                   foundEndpoint = &endpoint;
                   LOG(D, "Found matching endpoint with public key: %s",
                       redactHex("", devicePk.data(), devicePk.size()).c_str());
-                  epPkX = &endpoint.endpoint_pk_x;
+                  epPkX = &endpoint.public_key_x;
                   break;
                 }
               }
@@ -333,7 +334,7 @@ StandardAuthResult DDKStdAuth::attest()
         CommonCryptoUtils::MpiGuard r,s;
 
         mbedtls_ecp_group_load(&keypair.kp.MBEDTLS_PRIVATE(grp), MBEDTLS_ECP_DP_SECP256R1);
-        int pubImport = mbedtls_ecp_point_read_binary(&keypair.kp.MBEDTLS_PRIVATE(grp), &keypair.kp.MBEDTLS_PRIVATE(Q), foundEndpoint->endpoint_pk.data(), foundEndpoint->endpoint_pk.size());
+        int pubImport = mbedtls_ecp_point_read_binary(&keypair.kp.MBEDTLS_PRIVATE(grp), &keypair.kp.MBEDTLS_PRIVATE(Q), foundEndpoint->public_key.data(), foundEndpoint->public_key.size());
         LOG(V, "public key import result: %d", pubImport);
 
         mbedtls_mpi_read_binary(r, signature.data(), signature.size() / 2);

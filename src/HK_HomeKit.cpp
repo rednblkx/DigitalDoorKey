@@ -1,5 +1,6 @@
 #include <HK_HomeKit.h>
 #include "CommonCryptoUtils.h"
+#include "ddk/homekey/HapTags.h"
 #include "TLV8.hpp"
 #include "DDKLogging.h"
 #include <mbedtls/ecp.h>
@@ -10,7 +11,7 @@
 
 std::mutex HK_HomeKit::provision_mutex;
 
-HK_HomeKit::HK_HomeKit(readerData_t& readerData, std::function<void(const readerData_t&)> save_cb, std::function<void()> remove_key_cb, std::vector<uint8_t>& tlvData) : tlvData(tlvData), readerData(readerData), save_cb(save_cb), remove_key_cb(remove_key_cb) { }
+HK_HomeKit::HK_HomeKit(ddk::CredentialStore& store, std::function<void()> remove_key_cb, std::vector<uint8_t>& tlvData) : store(store), tlvData(tlvData), remove_key_cb(remove_key_cb) { }
 
 std::vector<uint8_t> HK_HomeKit::processResult() {
   std::lock_guard<std::mutex> lock(provision_mutex);
@@ -33,9 +34,9 @@ std::vector<uint8_t> HK_HomeKit::processResult() {
     if (op == kReader_Operation_Read) {
       if (RKR != rxTlv.end() && RKR->tag == kReader_Reader_Key_Request) {
         LOG(I, "GET READER KEY REQUEST");
-        if (!readerData.reader_sk.empty() && !readerData.reader_gid.empty()) {
+        if (!store.reader_identity().private_key.empty() && !store.reader_identity().group_identifier.empty()) {
           TLV8 getResSub;
-          getResSub.add(kReader_Res_Key_Identifier, readerData.reader_gid);
+          getResSub.add(kReader_Res_Key_Identifier, store.reader_identity().group_identifier);
           std::vector<uint8_t> subTlv = getResSub.get();
           LOG(D, "%s", redactHex("SUB-TLV", subTlv).c_str());
           TLV8 getResTlv;
@@ -65,25 +66,22 @@ std::vector<uint8_t> HK_HomeKit::processResult() {
         LOG(I, "TLV DCR: %d", DCR->length());
         LOG(D, "PROVISION DEVICE CREDENTIAL REQUEST");
         auto state = provision_device_cred(DCR->value);
-        if (std::get<int>(state) == SUCCESS && !std::get<0>(state).empty()) {
-          TLV8 dcrResSubTlv;
+        TLV8 dcrResSubTlv;
+        if (!std::get<std::vector<uint8_t>>(state).empty()) {
           dcrResSubTlv.add(kDevice_Res_Issuer_Key_Identifier, std::get<0>(state).size(), std::get<0>(state).data());
-          dcrResSubTlv.add(kDevice_Res_Status, std::get<1>(state));
-          std::vector<uint8_t> packedRes = dcrResSubTlv.get();
-          LOG(D, "SUB-TLV: %d", (int)packedRes.size());
-          LOG(D, "%s", redactHex("SUB-TLV", packedRes).c_str());
-          TLV8 dcrResTlv;
-          dcrResTlv.add(kDevice_Credential_Response, packedRes);
-          return dcrResTlv.get();
         }
+        dcrResSubTlv.add(kDevice_Res_Status, std::get<int>(state));
+        std::vector<uint8_t> packedRes = dcrResSubTlv.get();
+        LOG(D, "SUB-TLV: %d", (int)packedRes.size());
+        LOG(D, "%s", redactHex("SUB-TLV", packedRes).c_str());
+        TLV8 dcrResTlv;
+        dcrResTlv.add(kDevice_Credential_Response, packedRes);
+        return dcrResTlv.get();
       }
     } else if (op == kReader_Operation_Remove) {
       if (RKR != rxTlv.end()) {
         LOG(I, "REMOVE READER KEY REQUEST");
-        readerData.reader_gid.clear();
-        readerData.reader_id.clear();
-        readerData.reader_sk.clear();
-        save_cb(readerData);
+        remove_key_cb();
         return std::vector<uint8_t>{ 0x7, 0x3, 0x2, 0x1, 0x0 };
       } else if (DCR != rxTlv.end()) {
         LOG(I, "TLV DCR: %d", DCR->length());
@@ -117,7 +115,7 @@ std::tuple<std::vector<uint8_t>, int> HK_HomeKit::provision_device_cred(const st
     LOG(E, "DCReq TLV parse error");
     return {std::vector<uint8_t>{}, DOES_NOT_EXIST};
   }
-  hkIssuer_t* foundIssuer = nullptr;
+  ddk::Issuer* foundIssuer = nullptr;
   const tlv_t* tlvIssuerId = dcrTlv.expect(kDevice_Req_Issuer_Key_Identifier);
   if (tlvIssuerId == nullptr) {
     LOG(E, "Issuer Key Identifier missing from DCR");
@@ -125,14 +123,14 @@ std::tuple<std::vector<uint8_t>, int> HK_HomeKit::provision_device_cred(const st
   }
   std::vector<uint8_t> issuerIdentifier = tlvIssuerId->value;
   if (issuerIdentifier.size() > 0) {
-    for (auto& issuer : readerData.issuers) {
-      if (CommonCryptoUtils::constant_time_compare(issuer.issuer_id, issuerIdentifier)) {
-        LOG_HEX(D, "Found issuer - ID", issuer.issuer_id);
+    for (auto& issuer : store.issuers()) {
+      if (CommonCryptoUtils::constant_time_compare(issuer.id, issuerIdentifier)) {
+        LOG_HEX(D, "Found issuer - ID", issuer.id);
         foundIssuer = &issuer;
       }
     }
     if (foundIssuer != nullptr) {
-      hkEndpoint_t* foundEndpoint = nullptr;
+      ddk::Endpoint* foundEndpoint = nullptr;
       const tlv_t* tlvDevicePubKey = dcrTlv.expect(kDevice_Req_Public_Key);
       if (tlvDevicePubKey == nullptr) {
         LOG(E, "Device Public Key missing from DCR");
@@ -140,18 +138,18 @@ std::tuple<std::vector<uint8_t>, int> HK_HomeKit::provision_device_cred(const st
       }
       std::vector<uint8_t> devicePubKey = tlvDevicePubKey->value;
       devicePubKey.insert(devicePubKey.begin(), 0x04);
-      std::vector<uint8_t> hash = getHashIdentifier(devicePubKey, false);
+      std::vector<uint8_t> hash = CommonCryptoUtils::hash_identifier_sha1(devicePubKey);
       std::vector<uint8_t> endpointId(hash.begin(), hash.begin() + 6);
       for (auto& endpoint : foundIssuer->endpoints) {
-        if (CommonCryptoUtils::constant_time_compare(endpoint.endpoint_id, endpointId)) {
-          LOG_HEX(D, "Found endpoint - ID", endpoint.endpoint_id);
+        if (CommonCryptoUtils::constant_time_compare(endpoint.id, endpointId)) {
+          LOG_HEX(D, "Found endpoint - ID", endpoint.id);
           foundEndpoint = &endpoint;
         }
       }
       if (foundEndpoint == nullptr) {
         LOG(D, "Adding new endpoint - ID: %s , %s", redactHex("", endpointId.data(), endpointId.size()).c_str(), redactHex("PK", devicePubKey.data(), devicePubKey.size()).c_str());
-        hkEndpoint_t endpoint;
-        std::vector<uint8_t> x_coordinate = get_x(devicePubKey);
+        ddk::Endpoint endpoint;
+        std::vector<uint8_t> x_coordinate = CommonCryptoUtils::get_x(devicePubKey);
         const tlv_t* tlvKeyType = dcrTlv.expect(kDevice_Req_Key_Type);
         if (tlvKeyType == nullptr || tlvKeyType->value.empty()) {
           LOG(E, "Key Type missing from DCR");
@@ -159,27 +157,39 @@ std::tuple<std::vector<uint8_t>, int> HK_HomeKit::provision_device_cred(const st
         }
         std::vector<uint8_t> keyType = tlvKeyType->value;
         endpoint.counter = 0;
-        endpoint.key_type = *keyType.data();
-        endpoint.last_used_at = 0;
-        // endpoint.enrollments.hap = hap;
+        endpoint.key_type = static_cast<ddk::KeyType>(*keyType.data());
         if (hash.size() >= 6) {
-          endpoint.endpoint_id = endpointId;
+          endpoint.id = endpointId;
         }
-        endpoint.endpoint_pk = devicePubKey;
-        endpoint.endpoint_pk_x = x_coordinate;
+        endpoint.public_key = devicePubKey;
+        endpoint.public_key_x = x_coordinate;
         foundIssuer->endpoints.emplace_back(endpoint);
-        save_cb(readerData);
-        return std::make_tuple(foundIssuer->issuer_id, SUCCESS);
+        auto identity = store.reader_identity();
+        LOG(D, "identity sizes: sk=%zu pk=%zu pkx=%zu gid=%zu sub=%zu cert=%d",
+            identity.private_key.size(),
+            identity.public_key.size(),
+            identity.public_key_x.size(),
+            identity.group_identifier.size(),
+            identity.sub_identifier.size(),
+            identity.certificate.has_value());
+
+        LOG(D, "issuers count: %zu", store.issuers().size());
+        for (size_t i = 0; i < store.issuers().size(); ++i) {
+            auto& iss = store.issuers()[i];
+            LOG(D, "issuer[%zu] id=%zu pk=%zu pkx=%zu endpoints=%zu",
+                i, iss.id.size(), iss.public_key.size(),
+                iss.public_key_x.size(), iss.endpoints.size());
+        }
+        store.save();
+        return std::make_tuple(foundIssuer->id, SUCCESS);
       }
       else {
-        LOG_HEX(D, "Endpoint already exists - ID", foundEndpoint->endpoint_id);
-        save_cb(readerData);
+        LOG_HEX(D, "Endpoint already exists - ID", foundEndpoint->id);
         return std::make_tuple(issuerIdentifier, DUPLICATE);
       }
     }
     else {
       LOG_HEX(D, "Issuer does not exist - ID", issuerIdentifier);
-      save_cb(readerData);
       return std::make_tuple(issuerIdentifier, DOES_NOT_EXIST);
     }
   }
@@ -218,17 +228,17 @@ std::tuple<std::vector<uint8_t>, int> HK_HomeKit::remove_device_cred(const std::
   }
 
   if (keyIdentifier.empty() && !devicePubKey.empty()) {
-    std::vector<uint8_t> hash = getHashIdentifier(devicePubKey, false);
+    std::vector<uint8_t> hash = CommonCryptoUtils::hash_identifier_sha1(devicePubKey);
     if (hash.size() >= 6) {
       keyIdentifier = std::vector<uint8_t>(hash.begin(), hash.begin() + 6);
     }
   }
 
   if (!issuerIdentifier.empty()) {
-    hkIssuer_t* foundIssuer = nullptr;
-    for (auto& issuer : readerData.issuers) {
-      if (CommonCryptoUtils::constant_time_compare(issuer.issuer_id, issuerIdentifier)) {
-        LOG_HEX(D, "Found issuer - ID", issuer.issuer_id);
+    ddk::Issuer* foundIssuer = nullptr;
+    for (auto& issuer : store.issuers()) {
+      if (CommonCryptoUtils::constant_time_compare(issuer.id, issuerIdentifier)) {
+        LOG_HEX(D, "Found issuer - ID", issuer.id);
         foundIssuer = &issuer;
         break;
       }
@@ -244,17 +254,17 @@ std::tuple<std::vector<uint8_t>, int> HK_HomeKit::remove_device_cred(const std::
       for (auto it = foundIssuer->endpoints.begin(); it != foundIssuer->endpoints.end(); ++it) {
         bool match = false;
         if (!keyIdentifier.empty()) {
-          if (CommonCryptoUtils::constant_time_compare(it->endpoint_id, keyIdentifier)) {
+          if (CommonCryptoUtils::constant_time_compare(it->id, keyIdentifier)) {
             match = true;
           }
         }
         if (!match && !devicePubKey.empty()) {
-          if (CommonCryptoUtils::constant_time_compare(it->endpoint_pk, devicePubKey)) {
+          if (CommonCryptoUtils::constant_time_compare(it->public_key, devicePubKey)) {
             match = true;
           }
         }
         if (match) {
-          LOG_HEX(D, "Removing endpoint - ID", it->endpoint_id);
+          LOG_HEX(D, "Removing endpoint - ID", it->id);
           foundIssuer->endpoints.erase(it);
           removed = true;
           break;
@@ -262,7 +272,7 @@ std::tuple<std::vector<uint8_t>, int> HK_HomeKit::remove_device_cred(const std::
       }
 
       if (removed) {
-        save_cb(readerData);
+        store.save();
         return std::make_tuple(issuerIdentifier, SUCCESS);
       } else {
         LOG(D, "Endpoint does not exist in specified issuer");
@@ -271,30 +281,30 @@ std::tuple<std::vector<uint8_t>, int> HK_HomeKit::remove_device_cred(const std::
     } else {
       LOG_HEX(D, "Removing all endpoints for issuer - ID", issuerIdentifier);
       foundIssuer->endpoints.clear();
-      save_cb(readerData);
+      store.save();
       return std::make_tuple(issuerIdentifier, SUCCESS);
     }
   }
 
   if (!keyIdentifier.empty() || !devicePubKey.empty()) {
-    for (auto& issuer : readerData.issuers) {
+    for (auto& issuer : store.issuers()) {
       for (auto it = issuer.endpoints.begin(); it != issuer.endpoints.end(); ++it) {
         bool match = false;
         if (!keyIdentifier.empty()) {
-          if (CommonCryptoUtils::constant_time_compare(it->endpoint_id, keyIdentifier)) {
+          if (CommonCryptoUtils::constant_time_compare(it->id, keyIdentifier)) {
             match = true;
           }
         }
         if (!match && !devicePubKey.empty()) {
-          if (CommonCryptoUtils::constant_time_compare(it->endpoint_pk, devicePubKey)) {
+          if (CommonCryptoUtils::constant_time_compare(it->public_key, devicePubKey)) {
             match = true;
           }
         }
         if (match) {
-          LOG_HEX(D, "Removing endpoint - ID", it->endpoint_id);
-          std::vector<uint8_t> matchedIssuerId = issuer.issuer_id;
+          LOG_HEX(D, "Removing endpoint - ID", it->id);
+          std::vector<uint8_t> matchedIssuerId = issuer.id;
           issuer.endpoints.erase(it);
-          save_cb(readerData);
+          store.save();
           return std::make_tuple(matchedIssuerId, SUCCESS);
         }
       }
@@ -316,30 +326,49 @@ int HK_HomeKit::set_reader_key(const std::vector<uint8_t>& buf) {
     return -1;
   }
   tlv_it tlvReaderKey = rkrTLv.find(kReader_Req_Reader_Private_Key);
-  if(tlvReaderKey == rkrTLv.end()){ LOG(D, "kReader_Req_Reader_Private_Key not found"); return -1;}
+  if (tlvReaderKey == rkrTLv.end()) { LOG(D, "kReader_Req_Reader_Private_Key not found"); return -1; }
   std::vector<uint8_t> readerKey = tlvReaderKey->value;
   tlv_it tlvUniqueId = rkrTLv.find(kReader_Req_Identifier);
-  if(tlvUniqueId == rkrTLv.end()){ LOG(D, "kReader_Req_Identifier not found"); return -1;}
+  if (tlvUniqueId == rkrTLv.end()) { LOG(D, "kReader_Req_Identifier not found"); return -1; }
   std::vector<uint8_t> uniqueIdentifier = tlvUniqueId->value;
-  if (readerKey.size() > 0 && uniqueIdentifier.size() > 0) {
-    LOG(D, "%s", redactHex("Reader Key (private)", readerKey.data(), readerKey.size()).c_str());
-    LOG(D, "%s", redactHex("UniqueIdentifier", uniqueIdentifier.data(), uniqueIdentifier.size()).c_str());
-    std::vector<uint8_t> pubKey = getPublicKey(readerKey.data(), readerKey.size());
-    LOG(D, "%s", redactHex("Reader public key", pubKey.data(), pubKey.size()).c_str());
-    std::vector<uint8_t> x_coordinate = get_x(pubKey);
-    LOG(D, "%s", redactHex("X coordinate", x_coordinate.data(), x_coordinate.size()).c_str());
-    readerData.reader_pk_x = x_coordinate;
-    readerData.reader_pk = pubKey;
-    readerData.reader_sk = readerKey;
-    readerData.reader_id = uniqueIdentifier;
-    std::vector<uint8_t> readeridentifier = getHashIdentifier(readerData.reader_sk, true);
-    LOG(D, "%s", redactHex("Reader GroupIdentifier", readeridentifier.data(), readeridentifier.size()).c_str());
-    if (readeridentifier.size() >= 8) {
-      readerData.reader_gid = std::vector<uint8_t>(readeridentifier.begin(), readeridentifier.begin() + 8);
-    } else {
-      readerData.reader_gid = readeridentifier;
-    }
-    save_cb(readerData);
+  if (readerKey.empty() || uniqueIdentifier.empty()) {
+    LOG(E, "RKR contains empty key or identifier");
+    return -1;                                  // ← delta 1, see below
   }
+
+  std::vector<uint8_t> pubKey = CommonCryptoUtils::derive_public_key(readerKey);
+  if (pubKey.empty()) {
+    LOG(E, "Failed to derive reader public key");
+    return -1;                                  // ← delta 2, see below
+  }
+  std::vector<uint8_t> x_coordinate = CommonCryptoUtils::get_x(pubKey);
+  LOG(D, "%s", redactHex("X coordinate", x_coordinate).c_str());
+
+  ddk::ReaderIdentity& identity = store.reader_identity();
+  identity.private_key     = readerKey;
+  identity.public_key      = std::move(pubKey);
+  identity.public_key_x    = std::move(x_coordinate);
+  identity.sub_identifier  = uniqueIdentifier;
+
+  std::vector<uint8_t> gid_hash = CommonCryptoUtils::hash_identifier_sha256(readerKey);
+  identity.group_identifier.assign(
+      gid_hash.begin(), gid_hash.begin() + std::min<size_t>(8, gid_hash.size()));
+
+  LOG(D, "identity sizes: sk=%zu pk=%zu pkx=%zu gid=%zu sub=%zu cert=%d",
+      identity.private_key.size(),
+      identity.public_key.size(),
+      identity.public_key_x.size(),
+      identity.group_identifier.size(),
+      identity.sub_identifier.size(),
+      identity.certificate.has_value());
+
+  LOG(D, "issuers count: %zu", store.issuers().size());
+  for (size_t i = 0; i < store.issuers().size(); ++i) {
+      auto& iss = store.issuers()[i];
+      LOG(D, "issuer[%zu] id=%zu pk=%zu pkx=%zu endpoints=%zu",
+          i, iss.id.size(), iss.public_key.size(),
+          iss.public_key_x.size(), iss.endpoints.size());
+  }
+  store.save();
   return 0;
 }

@@ -3,17 +3,13 @@
 #include <array>
 #include "DDKReaderData.h" 
 #include "ScbSecureChannel.h"
-
-// Forward declarations of existing types
-struct hkIssuer_t;
-struct hkEndpoint_t;
-class ScbSecureChannel;
+#include "ddk/store/CredentialStore.h"
 
 /**
  * Result of the Attestation (Initial Pairing/Handshake) flow.
  */
 struct AttestationResult {
-    hkIssuer_t* issuer = nullptr;
+    ddk::Issuer* issuer = nullptr;
     std::array<uint8_t,65> device_pub_key{};
     KeyFlow flow = kFlowFailed;
 
@@ -24,7 +20,7 @@ struct AttestationResult {
  * Result of verifying the attestation response.
  */
 struct AttestationVerificationResult {
-    hkIssuer_t* issuer = nullptr;
+    ddk::Issuer* issuer = nullptr;
     std::array<uint8_t, 65> device_pub_key{};
 
     explicit operator bool() const { return issuer != nullptr; }
@@ -34,8 +30,8 @@ struct AttestationVerificationResult {
  * Result of the Standard Authentication (Fast/Normal) flow.
  */
 struct StandardAuthResult {
-    hkIssuer_t* issuer = nullptr;
-    hkEndpoint_t* endpoint = nullptr;
+    ddk::Issuer* issuer = nullptr;
+    ddk::Endpoint* endpoint = nullptr;
     std::unique_ptr<ScbSecureChannel> scb_context;
     std::array<uint8_t, 32> shared_secret;
     KeyFlow flow = kFlowFailed;
@@ -49,8 +45,8 @@ struct StandardAuthResult {
  * Result of the Fast Authentication flow.
  */
 struct FastAuthResult {
-    hkIssuer_t* issuer = nullptr;
-    hkEndpoint_t* endpoint = nullptr;
+    ddk::Issuer* issuer = nullptr;
+    ddk::Endpoint* endpoint = nullptr;
     KeyFlow flow = kFlowFailed;
 
     explicit operator bool() const { return flow == kFlowFAST; }

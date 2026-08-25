@@ -1,5 +1,6 @@
 #include "AttestationAuth.h"
 #include "AuthResults.hpp"
+#include "ddk/store/CredentialStore.h"
 #include "ndef.h"
 #include "simple_tlv.hpp"
 #include "TLV8.hpp"
@@ -186,57 +187,38 @@ std::vector<unsigned char> DDKAttestationAuth::envelope2Cmd(std::vector<uint8_t>
     printf("%02X", docBuf[i]);
   }
   #endif
-  auto encrypted = secureCtx.encryptMessageToEndpoint(std::vector<uint8_t>(docBuf, docBuf + docSize));
-  if(encrypted.size() > 0){
-    LOG_HEX(D, "ENC DATA", encrypted);
-
-    auto tlv = simple_tlv(0x53, encrypted);
-
-    std::vector<uint8_t> apdu = {0x0, 0xC3, 0x0, 0x0, (unsigned char)tlv.size()};
-
-    apdu.insert(apdu.end(), tlv.begin(), tlv.end());
-    LOG(D, "%s", redactHex("ENV2 APDU", apdu).c_str());
-    std::vector<uint8_t> env2Res;
-    std::vector<uint8_t> attestation_package;
-    std::vector<uint8_t> getData = {0x0, 0xc0, 0x0, 0x0, 0x0};
-    LOG(D, "%s", redactHex("ENV2 APDU", apdu).c_str());
-    auto dataStatus = params.channel_->transceive(apdu);
-    LOG(D, "GET DATA %02x %02x", dataStatus.sw1, dataStatus.sw2);
-    if(!dataStatus.more()){
-      return {};
-    }
-    bool getMore = false;
-    do
-    {
-      getMore = false;
-      auto status = params.channel_->transceive(getData);
-      LOG(D, "GET DATA %02x %02x", dataStatus.sw1, dataStatus.sw2);
-      env2Res.swap(status.data);
-      attestation_package.insert(attestation_package.end(), env2Res.begin(), env2Res.end());
-      LOG(D, "Data Length: %d - pkg length: %d", env2Res.size(), attestation_package.size());
-      if(env2Res.size() >= 250 && status.more()){
-        getMore = true;
-      } else if(status.ok()){
-        getMore = false;
-        break;
-      } else return {};
-      env2Res.clear();
-    } while (getMore);
-    LOG(D, "%s", redactHex("ATT PKG", attestation_package).c_str());
-    TLV8 data(true);
-    data.parse(attestation_package.data(), attestation_package.size());
-    tlv_it tlvEncMsg = data.find(0x53);
-    if (tlvEncMsg == data.end()) {
-      LOG(E, "Envelope 2 response is missing required encrypted message (0x53).");
-      return std::vector<uint8_t>();
-    }
-    std::vector<uint8_t> encryptedMessage = tlvEncMsg->value;
-    auto decrypted_message = secureCtx.decryptMessageFromEndpoint(encryptedMessage);
-    if(decrypted_message.size() > 0){
-      return decrypted_message;
-    }
+  auto encrypted = secureCtx.encryptMessageToEndpoint(
+      std::vector<uint8_t>(docBuf, docBuf + docSize));
+  if (encrypted.empty()) {
+    return {};
   }
-  return std::vector<uint8_t>();
+  LOG_HEX(D, "ENC DATA", encrypted);
+
+  auto tlv = simple_tlv(0x53, encrypted);
+
+  ddk::ApduCommand env2{0x00, 0xC3, 0x00, 0x00, std::move(tlv), 0};
+  auto resp = params.channel_->transceive_full(env2);
+  if (!resp.ok()) {
+    LOG(E, "ENVELOPE 2 failed: SW=%02X%02X", resp.sw1, resp.sw2);
+    return {};
+  }
+
+  const std::vector<uint8_t>& attestation_package = resp.data;
+  LOG(D, "Attestation package: %zu bytes", attestation_package.size());
+  LOG(D, "%s", redactHex("ATT PKG", attestation_package).c_str());
+
+  TLV8 data(true);
+  data.parse(attestation_package.data(), attestation_package.size());
+  tlv_it tlvEncMsg = data.find(0x53);
+  if (tlvEncMsg == data.end()) {
+    LOG(E, "Envelope 2 response is missing required encrypted message (0x53).");
+    return {};
+  }
+  auto decrypted_message = secureCtx.decryptMessageFromEndpoint(tlvEncMsg->value);
+  if (decrypted_message.size() > 0) {
+    return decrypted_message;
+  }
+  return {};
 }
 
 // Helper function to copy a CborValue byte string to a std::vector
@@ -255,7 +237,7 @@ CborError copy_byte_string(CborValue *value, std::vector<uint8_t> &target) {
 
 
 AttestationVerificationResult DDKAttestationAuth::verify(std::vector<uint8_t>& decryptedCbor) {
-    hkIssuer_t* foundIssuer = nullptr;
+    ddk::Issuer* foundIssuer = nullptr;
     std::array<uint8_t, 65> devicePubKey{};
 
     LOG(D, "Starting attestation verification with %d bytes of CBOR.", decryptedCbor.size());
@@ -486,14 +468,14 @@ AttestationVerificationResult DDKAttestationAuth::verify(std::vector<uint8_t>& d
         std::copy(deviceKeyY.begin(), deviceKeyY.end(), devicePubKey.begin() + 1 + coordinateSize);
         
         // --- Verification Logic ---
-        for (auto &&issuer : params.issuers) {
-          if (issuer.issuer_id.size() != kIssuerIdSize ||
-              issuer.issuer_pk.size() != crypto_sign_ed25519_PUBLICKEYBYTES) {
+        for (auto &&issuer : params.store.issuers()) {
+          if (issuer.id.size() != kIssuerIdSize ||
+              issuer.public_key.size() != crypto_sign_ed25519_PUBLICKEYBYTES) {
             LOG(E, "Ignoring issuer with invalid ID or Ed25519 public key size.");
             continue;
           }
-          if (CommonCryptoUtils::constant_time_compare(issuer.issuer_id, issuerId)) {
-            LOG_HEX(D, "Found matching Issuer", issuer.issuer_id);
+          if (CommonCryptoUtils::constant_time_compare(issuer.id, issuerId)) {
+            LOG_HEX(D, "Found matching Issuer", issuer.id);
             foundIssuer = &issuer;
             break;
           }
@@ -515,7 +497,7 @@ AttestationVerificationResult DDKAttestationAuth::verify(std::vector<uint8_t>& d
           LOG(D, "Verifying signature against package of size %d", package_size);
           LOG_HEX(V, "SIGNED PACKAGE", packageBuf);
 
-          int res = crypto_sign_ed25519_verify_detached(signature.data(), packageBuf.data(), package_size, foundIssuer->issuer_pk.data());
+          int res = crypto_sign_ed25519_verify_detached(signature.data(), packageBuf.data(), package_size, foundIssuer->public_key.data());
           if (res == 0) {
             LOG(D, "Attestation signature verification successful!");
             return {foundIssuer, devicePubKey};
@@ -569,6 +551,7 @@ AttestationResult DDKAttestationAuth::attest()
         auto env2DataDec = envelope2Cmd(salt);
         if (!env2DataDec.empty())
         {
+          LOG(D, "%s", redactHex("ENVELOPE RESPONSE",env2DataDec).c_str());
           auto verify_result = verify(env2DataDec);
           if (verify_result) {
             result.device_pub_key = verify_result.device_pub_key;
