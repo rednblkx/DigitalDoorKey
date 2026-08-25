@@ -10,9 +10,6 @@ class HK_HomeKit
     std::vector<uint8_t> &tlvData;
     readerData_t& readerData;
     static std::mutex provision_mutex;
-    std::vector<uint8_t> getHashIdentifier(const std::vector<uint8_t>& key, bool sha256);
-    std::vector<uint8_t> get_x(std::vector<uint8_t> &pubKey);
-    std::vector<uint8_t> getPublicKey(uint8_t *privKey, size_t len);
     std::tuple<std::vector<uint8_t>, int> provision_device_cred(const std::vector<uint8_t> &buf);
     std::tuple<std::vector<uint8_t>, int> remove_device_cred(const std::vector<uint8_t> &buf);
     int set_reader_key(const std::vector<uint8_t>& buf);

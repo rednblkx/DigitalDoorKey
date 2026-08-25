@@ -2,7 +2,7 @@
 #include <array>
 #include <vector>
 #include "DDKReaderData.h"
-#include "DigitalKeySecureContext.h"
+#include "ScbSecureChannel.h"
 #include "SecureBuffer.h"
 
 namespace ddk {
@@ -25,6 +25,6 @@ struct DDKAuthParams {
   SecureBuffer<32> *readerEphPrivKey{};
   SecureBuffer<65> *readerEphPubKey{};
   std::array<uint8_t, 2> &flags;
-  DigitalKeySecureContext *context = nullptr;
+  ScbSecureChannel *scb_context = nullptr;
   ddk::ApduChannel* channel_ = nullptr;
 };

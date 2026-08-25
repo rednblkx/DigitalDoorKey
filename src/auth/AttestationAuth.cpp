@@ -545,7 +545,7 @@ AttestationResult DDKAttestationAuth::attest()
   attComm.reserve(opAttTlv.size() + 1);
   attComm.insert(attComm.begin() + 1, opAttTlv.begin(), opAttTlv.end());
   LOG_HEX(D, "attComm", attComm);
-  auto encryptedCmd = params.context->encrypt_command(attComm.data(), attComm.size());
+  auto encryptedCmd = params.scb_context->encrypt_command(attComm.data(), attComm.size());
 
   LOG_HEX(V, "encrypted_command", std::get<0>(encryptedCmd));
   LOG_HEX(V, "calculated_rmac", std::get<1>(encryptedCmd));

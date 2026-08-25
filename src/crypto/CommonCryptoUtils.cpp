@@ -11,6 +11,7 @@
 #include <mbedtls/error.h>
 #include <mbedtls/platform_util.h>
 #include "DDKLogging.h"
+#include "mbedtls/sha1.h"
 
 #include <mbedtls/gcm.h>
 #if defined(CONFIG_IDF_CMAKE)
@@ -47,14 +48,6 @@ namespace CommonCryptoUtils
   
   // --- ECC Utilities ---
   
-  /**
-   * Extracts the X coordinate (first 32 bytes of uncompressed point) from a P-256 public key.
-   */
-  inline std::vector<uint8_t> get_x(const std::vector<uint8_t> &pubKey) {
-    if (pubKey.size() < 65) return {}; // Expect uncompressed point (0x04 + X + Y)
-    return std::vector<uint8_t>(pubKey.begin() + 1, pubKey.begin() + 33);
-  }
-
   std::vector<uint8_t> decryptAesGcm(const std::vector<uint8_t> &ciphertext, const std::array<uint8_t,32> &key,
   const std::array<uint8_t,12> &iv) {
     if (ciphertext.size() < 16) {
@@ -90,6 +83,39 @@ namespace CommonCryptoUtils
 
     return plaintext;
   }
+
+std::vector<uint8_t> encryptAesGcm(
+    const std::vector<uint8_t>& plaintext,
+    const std::array<uint8_t, 32>& key,
+    const std::array<uint8_t, 12>& iv)
+{
+    GcmGuard gcm_ctx;
+    int ret = mbedtls_gcm_setkey(gcm_ctx, MBEDTLS_CIPHER_ID_AES, key.data(), 256);
+    if (ret != 0) {
+        LOG(E, "mbedtls_gcm_setkey failed: %d", ret);
+        return {};
+    }
+
+    std::vector<uint8_t> ciphertext(plaintext.size());
+    std::array<uint8_t,16> tag{};
+
+    ret = mbedtls_gcm_crypt_and_tag(gcm_ctx,
+        MBEDTLS_GCM_ENCRYPT,
+        plaintext.size(),
+        iv.data(), 12,
+        nullptr, 0,
+        plaintext.data(),
+        ciphertext.data(),
+        16, tag.data());
+
+    if (ret != 0) {
+        LOG(E, "mbedtls_gcm_crypt_and_tag failed: %d", ret);
+        return {};
+    }
+
+    ciphertext.insert(ciphertext.end(), tag.begin(), tag.end());
+    return ciphertext;  // ciphertext || 16-byte tag — same layout decryptAesGcm parses
+}
 
   /**
    * The function performs an elliptic curve Diffie-Hellman key exchange to compute a shared key between
@@ -184,7 +210,7 @@ namespace CommonCryptoUtils
    * 
    * @return a std::vector<uint8_t> object, which contains the X coordinate of the given public key.
    */
-  std::vector<uint8_t> get_x(std::array<uint8_t, 65> &pubKey)
+  std::vector<uint8_t> get_x(const std::array<uint8_t, 65> &pubKey)
   {
     EcpGroupGuard grp;
     EcpPointGuard point;
@@ -246,5 +272,62 @@ namespace CommonCryptoUtils
       return std::vector<uint8_t>();
     }
     return sigPoint;
+  }
+  std::vector<uint8_t> derive_public_key(const std::vector<uint8_t>& private_key)
+  {
+    CommonCryptoUtils::EcpKeyPairGuard keypair;
+    int ecp_key = mbedtls_ecp_read_key(MBEDTLS_ECP_DP_SECP256R1, keypair, private_key.data(), private_key.size());
+    if(ecp_key != 0){
+      LOG(E, "ecp_read_key - %d", ecp_key);
+      return {};
+    }
+    int ret = mbedtls_ecp_mul(&keypair.kp.MBEDTLS_PRIVATE(grp), &keypair.kp.MBEDTLS_PRIVATE(Q), &keypair.kp.MBEDTLS_PRIVATE(d), &keypair.kp.MBEDTLS_PRIVATE(grp).G, CommonCryptoUtils::esp_rng, NULL);
+    if (ret != 0) {
+      LOG(E, "mbedtls_ecp_mul - %d", ret);
+      return {};
+    }
+    size_t olenPub = 0;
+    std::vector<uint8_t> readerPublicKey(MBEDTLS_ECP_MAX_PT_LEN);
+    int write_ret = mbedtls_ecp_point_write_binary(&keypair.kp.MBEDTLS_PRIVATE(grp), &keypair.kp.MBEDTLS_PRIVATE(Q), MBEDTLS_ECP_PF_UNCOMPRESSED, &olenPub, readerPublicKey.data(), readerPublicKey.size());
+    if (write_ret != 0) {
+      LOG(E, "mbedtls_ecp_point_write_binary - %d", write_ret);
+      return {};
+    }
+    readerPublicKey.resize(olenPub);
+    return readerPublicKey;
+  }
+  std::vector<uint8_t> hash_identifier_sha1(const std::vector<uint8_t>& key) {
+    std::vector<unsigned char> hashable;
+    hashable.insert(hashable.end(), key.begin(), key.end());
+
+    std::vector<uint8_t> hash(32, 0);
+
+    mbedtls_sha1_context ctx;
+    mbedtls_sha1_init(&ctx);
+    if (mbedtls_sha1_starts(&ctx) == 0) {
+      mbedtls_sha1_update(&ctx, hashable.data(), hashable.size());
+      mbedtls_sha1_finish(&ctx, hash.data());
+    }
+    mbedtls_sha1_free(&ctx);
+
+    return hash;
+  }
+  std::vector<uint8_t> hash_identifier_sha256(const std::vector<uint8_t>& key) {
+    std::vector<unsigned char> hashable;
+    std::string prefix = "key-identifier";
+    hashable.insert(hashable.begin(), prefix.begin(), prefix.end());
+    hashable.insert(hashable.end(), key.begin(), key.end());
+
+    std::vector<uint8_t> hash(32, 0);
+
+    mbedtls_sha256_context ctx;
+    mbedtls_sha256_init(&ctx);
+    if (mbedtls_sha256_starts(&ctx, 0) == 0) {
+      mbedtls_sha256_update(&ctx, hashable.data(), hashable.size());
+      mbedtls_sha256_finish(&ctx, hash.data());
+    }
+    mbedtls_sha256_free(&ctx);
+
+    return hash;
   }
 }

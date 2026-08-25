@@ -1,7 +1,8 @@
 #include "StandardAuth.h"
 #include "AuthResults.hpp"
 #include "CommonCryptoUtils.h"
-#include "DigitalKeySecureContext.h"
+#include "ScbSecureChannel.h"
+#include "GcmSecureChannel.h"
 #include "DDKReaderData.h"
 #include "x963kdf.h"
 #include "DDKLogging.h"
@@ -113,7 +114,7 @@ DDKStdAuth::DDKStdAuth(DDKAuthParams &params) : params(params) {
  * @return a tuple containing the following elements:
  * 1. A pointer to the issuer object (`hkIssuer_t*`)
  * 2. A pointer to the endpoint object (`hkEndpoint_t*`)
- * 3. An smart pointer of type `DigitalKeySecureContext`
+ * 3. An smart pointer of type `ScbSecureChannel`
  * 4. A 32 byte array containing the derived persistent key
  * 5. An enum value of type `KeyFlow`
  */
@@ -224,13 +225,7 @@ StandardAuthResult DDKStdAuth::attest()
   }
   LOG_HEX(D, "Persistent Key", persistentKey);
   LOG_HEX(D, "Volatile Key", volatileKey);
-  std::unique_ptr<DigitalKeySecureContext> context;
-  if (params.type == kHomeKey) {
-    context = std::make_unique<DigitalKeySecureContext>(volatileKey);
-  }
-  if (params.type == kAliro) {
-    context = std::make_unique<DigitalKeySecureContext>(&skReader, &skDevice);
-  }
+  std::unique_ptr<ScbSecureChannel> scb_context;
   hkEndpoint_t *foundEndpoint = nullptr;
   hkIssuer_t *foundIssuer = nullptr;
   StandardAuthResult result;
@@ -241,7 +236,14 @@ StandardAuthResult DDKStdAuth::attest()
   if (response.data.size() >= min_secure_response_size &&
       response.ok())
   {
-    auto response_result = context->decrypt_response(response.data.data(), response.data.size());
+    std::vector<uint8_t> response_result;
+    if (params.type == kHomeKey) {
+        scb_context = std::make_unique<ScbSecureChannel>(volatileKey);
+        response_result = scb_context->decrypt_response(response.data.data(), response.data.size());
+    } else {
+        GcmSecureChannel gcm(skReader, skDevice);
+        response_result = gcm.decrypt_endpoint_data(response.data);
+    }
     LOG(D, "%s", redactHex("Decrypted", response_result).c_str());
     if (!response_result.empty())
     {
@@ -348,7 +350,7 @@ StandardAuthResult DDKStdAuth::attest()
           }
           result.issuer = foundIssuer;
           result.endpoint = foundEndpoint;
-          result.secure_context = std::move(context);
+          result.scb_context = std::move(scb_context);
           result.shared_secret = persistentKey;
           result.flow = kFlowSTANDARD;
           return result;
@@ -360,7 +362,7 @@ StandardAuthResult DDKStdAuth::attest()
       next:
       result.issuer = foundIssuer;
       result.endpoint = foundEndpoint;
-      result.secure_context = std::move(context);
+      result.scb_context = std::move(scb_context);
       result.shared_secret = persistentKey;
       result.flow = kFlowNext;
       return result;
@@ -375,7 +377,7 @@ StandardAuthResult DDKStdAuth::attest()
 err:
   result.issuer = foundIssuer;
   result.endpoint = foundEndpoint;
-  result.secure_context = std::move(context);
+  result.scb_context = std::move(scb_context);
   result.shared_secret = persistentKey;
   return result;
 }

@@ -2,7 +2,7 @@
   Code highly inspired by https://github.com/kormax/apple-home-key-reader/blob/main/util/digital_key.py
  */
 
-#include "DigitalKeySecureContext.h"
+#include "ScbSecureChannel.h"
 #include "DDKLogging.h"
 #include <cstdint>
 #include <cstring>
@@ -26,7 +26,7 @@
  * 
  * @return a std::tuple containing a std::vector<uint8_t> and a size_t.
  */
-std::tuple<std::vector<uint8_t>, size_t> DigitalKeySecureContext::pad_mode_3(unsigned char* message, size_t message_size, unsigned char pad_byte = 0x80, size_t block_size = 8) {
+std::tuple<std::vector<uint8_t>, size_t> ScbSecureChannel::pad_mode_3(unsigned char* message, size_t message_size, unsigned char pad_byte = 0x80, size_t block_size = 8) {
     size_t totalLen = message_size;
     size_t padding_length = block_size - (totalLen + 1) % block_size;
     std::vector<uint8_t> buf(totalLen + padding_length + 1);
@@ -51,7 +51,7 @@ std::tuple<std::vector<uint8_t>, size_t> DigitalKeySecureContext::pad_mode_3(uns
  * 
  * @return the index of the padding flag byte in the message array.
  */
-int DigitalKeySecureContext::unpad_mode_3(unsigned char* message, size_t message_size, unsigned char pad_flag_byte = 0x80, size_t block_size = 16) {
+int ScbSecureChannel::unpad_mode_3(unsigned char* message, size_t message_size, unsigned char pad_flag_byte = 0x80, size_t block_size = 16) {
     for (int i = message_size - 1; i >= 0; --i)
     {
         if (message[i] == pad_flag_byte)
@@ -88,7 +88,7 @@ int DigitalKeySecureContext::unpad_mode_3(unsigned char* message, size_t message
  * @return an integer value. If the value is 0, it means the encryption was successful. If the value is
  * non-zero, it indicates an error occurred during the encryption process.
  */
-int DigitalKeySecureContext::encrypt_aes_cbc(const unsigned char* key, unsigned char* iv, const unsigned char* plaintext, size_t length, unsigned char* ciphertext) {
+int ScbSecureChannel::encrypt_aes_cbc(const unsigned char* key, unsigned char* iv, const unsigned char* plaintext, size_t length, unsigned char* ciphertext) {
     mbedtls_aes_context aes_ctx;
     mbedtls_aes_init(&aes_ctx);
     mbedtls_aes_setkey_enc(&aes_ctx, key, 128);
@@ -121,7 +121,7 @@ int DigitalKeySecureContext::encrypt_aes_cbc(const unsigned char* key, unsigned 
  * @return an integer value. If the value is 0, it means the decryption was successful. If the value is
  * non-zero, it indicates an error occurred during the decryption process.
  */
-int DigitalKeySecureContext::decrypt_aes_cbc(const unsigned char* key, unsigned char* iv, const unsigned char* ciphertext, size_t length, unsigned char* plaintext) {
+int ScbSecureChannel::decrypt_aes_cbc(const unsigned char* key, unsigned char* iv, const unsigned char* ciphertext, size_t length, unsigned char* plaintext) {
     mbedtls_aes_context aes_ctx;
     mbedtls_aes_init(&aes_ctx);
     mbedtls_aes_setkey_dec(&aes_ctx, key, 128);
@@ -153,7 +153,7 @@ int DigitalKeySecureContext::decrypt_aes_cbc(const unsigned char* key, unsigned 
  * @return an integer value. If the value is 0, it means the CMAC calculation was successful. If the
  * value is non-zero, it indicates an error occurred during the CMAC calculation.
  */
-int DigitalKeySecureContext::aes_cmac(const unsigned char* key, const unsigned char* data, size_t data_size, unsigned char* mac) {
+int ScbSecureChannel::aes_cmac(const unsigned char* key, const unsigned char* data, size_t data_size, unsigned char* mac) {
     int cmac = mbedtls_cipher_cmac(mbedtls_cipher_info_from_values(MBEDTLS_CIPHER_ID_AES, 128, MBEDTLS_MODE_ECB), key, 128, data, data_size, mac);
     if(cmac != 0){
         LOG(E, "cmac - %d", cmac);
@@ -162,22 +162,14 @@ int DigitalKeySecureContext::aes_cmac(const unsigned char* key, const unsigned c
     return 0;
 }
 
-DigitalKeySecureContext::DigitalKeySecureContext(const std::vector<uint8_t> &volatileKey) {
+ScbSecureChannel::ScbSecureChannel(const std::vector<uint8_t> &volatileKey) {
     device_counter = 0;
-    useAliro = false;
     memcpy(this->kenc, volatileKey.data(), 16); // Assuming a 128-bit key size
     memcpy(this->kmac, volatileKey.data() + 16, 16); // Assuming a 128-bit key size
     memcpy(this->krmac, volatileKey.data() + 32, 16); // Assuming a 128-bit key size
 }
 
-DigitalKeySecureContext::DigitalKeySecureContext(const std::array<uint8_t,32> *skReader, const std::array<uint8_t,32> *skDevice) {
-    device_counter = 1;
-    useAliro = true;
-    this->skReader = skReader;
-    this->skDevice = skDevice;
-}
-
-DigitalKeySecureContext::~DigitalKeySecureContext() {
+ScbSecureChannel::~ScbSecureChannel() {
     secure_zero(kenc, sizeof(kenc));
     secure_zero(kmac, sizeof(kmac));
     secure_zero(krmac, sizeof(krmac));
@@ -199,7 +191,7 @@ DigitalKeySecureContext::~DigitalKeySecureContext() {
  * with the calculated rmac. The second element of the tuple is `calculated_rmac`, which is a vector
  * containing the calculated rmac.
  */
-std::tuple<std::vector<uint8_t>, std::vector<uint8_t>> DigitalKeySecureContext::encrypt_command(unsigned char* data, size_t dataSize) {
+std::tuple<std::vector<uint8_t>, std::vector<uint8_t>> ScbSecureChannel::encrypt_command(unsigned char* data, size_t dataSize) {
     LOG(D, "%s", redactHex("kenc", kenc, sizeof(kenc)).c_str());
     LOG(D, "%s", redactHex("kmac", kmac, sizeof(kmac)).c_str());
     LOG(D, "%s", redactHex("krmac", krmac, sizeof(krmac)).c_str());
@@ -227,66 +219,35 @@ std::tuple<std::vector<uint8_t>, std::vector<uint8_t>> DigitalKeySecureContext::
  * 
  * @return a vector of uint8_t, which represents the decrypted plaintext.
  */
-std::vector<uint8_t> DigitalKeySecureContext::decrypt_response(const unsigned char* data, size_t dataSize) {
+std::vector<uint8_t> ScbSecureChannel::decrypt_response(const unsigned char* data, size_t dataSize) {
     std::vector<uint8_t> plaintext;
-    if (!useAliro) {
-        constexpr size_t response_mac_size = 8;
-        constexpr size_t aes_block_size = 16;
-        if (dataSize < response_mac_size + aes_block_size ||
-            (dataSize - response_mac_size) % aes_block_size != 0) {
-            LOG(E, "Invalid STANDARD secure response length: %zu bytes", dataSize);
-            return {};
-        }
-
-        LOG(D, "%s", redactHex("kenc", kenc, sizeof(kenc)).c_str());
-        LOG(D, "%s", redactHex("kmac", kmac, sizeof(kmac)).c_str());
-        LOG(D, "%s", redactHex("krmac", krmac, sizeof(krmac)).c_str());
-        LOG(V, "encrypted_data: (%zu bytes, redacted)", (size_t)dataSize);
-        std::vector<uint8_t> calculated_rmac(16);
-        const size_t ciphertext_size = dataSize - response_mac_size;
-        size_t input_dataSize = 16 + ciphertext_size;
-        std::vector<uint8_t> input_data = concatenate_arrays(mac_chaining_value, data, 16, ciphertext_size);
-        int cmac_status = aes_cmac(krmac, input_data.data(), input_dataSize, calculated_rmac.data());
-        LOG_HEX(V, "recv_rmac", std::vector(data + ciphertext_size, data + dataSize));
-        LOG_HEX(V, "calculated_rmac", calculated_rmac);
-        if(cmac_status) return {};
-
-        if(!CommonCryptoUtils::constant_time_compare(data + ciphertext_size, calculated_rmac.data(), response_mac_size)){
-            LOG(E, "calculated_rmac != recv_rmac");
-            return {};
-        }
-
-         plaintext = decrypt(data, ciphertext_size, response_pcb, kenc);
-    } else {
-        if (dataSize < 16) {
-            LOG(E, "Response too short: %zu bytes (need at least 16 for GCM tag)", dataSize);
-            return {};
-        }
-        if (skDevice == nullptr) {
-            LOG(E, "No device key available");
-            return {};
-        }
-
-        std::array<uint8_t,12> iv{};
-        memcpy(iv.data(), ENDPOINT_MODE.data(), 8);
-        iv[8] = (device_counter >> 24) & 0xFF;
-        iv[9] = (device_counter >> 16) & 0xFF;
-        iv[10] = (device_counter >> 8) & 0xFF;
-        iv[11] = device_counter & 0xFF;
-
-        LOG(D, "decrypt_response: counter=%d", device_counter);
-        LOG(D, "%s", redactHex("IV", iv.data(), iv.size()).c_str());
-
-        plaintext = CommonCryptoUtils::decryptAesGcm(std::vector(data, data + dataSize), *skDevice, iv);
-
-        if (!plaintext.empty()) {
-            device_counter++;
-            LOG(D, "Decryption successful, plaintext (%zu bytes, redacted)", plaintext.size());
-        } else {
-            LOG(E, "Decryption failed - GCM tag verification failed");
-        }
+    constexpr size_t response_mac_size = 8;
+    constexpr size_t aes_block_size = 16;
+    if (dataSize < response_mac_size + aes_block_size ||
+        (dataSize - response_mac_size) % aes_block_size != 0) {
+        LOG(E, "Invalid STANDARD secure response length: %zu bytes", dataSize);
+        return {};
     }
 
+    LOG(D, "%s", redactHex("kenc", kenc, sizeof(kenc)).c_str());
+    LOG(D, "%s", redactHex("kmac", kmac, sizeof(kmac)).c_str());
+    LOG(D, "%s", redactHex("krmac", krmac, sizeof(krmac)).c_str());
+    LOG(V, "encrypted_data: (%zu bytes, redacted)", (size_t)dataSize);
+    std::vector<uint8_t> calculated_rmac(16);
+    const size_t ciphertext_size = dataSize - response_mac_size;
+    size_t input_dataSize = 16 + ciphertext_size;
+    std::vector<uint8_t> input_data = concatenate_arrays(mac_chaining_value, data, 16, ciphertext_size);
+    int cmac_status = aes_cmac(krmac, input_data.data(), input_dataSize, calculated_rmac.data());
+    LOG_HEX(V, "recv_rmac", std::vector(data + ciphertext_size, data + dataSize));
+    LOG_HEX(V, "calculated_rmac", calculated_rmac);
+    if(cmac_status) return {};
+
+    if(!CommonCryptoUtils::constant_time_compare(data + ciphertext_size, calculated_rmac.data(), response_mac_size)){
+        LOG(E, "calculated_rmac != recv_rmac");
+        return {};
+    }
+
+      plaintext = decrypt(data, ciphertext_size, response_pcb, kenc);
     return plaintext;
 }
 
@@ -307,7 +268,7 @@ std::vector<uint8_t> DigitalKeySecureContext::decrypt_response(const unsigned ch
  * 
  * @return a std::vector<uint8_t> object, which contains the encrypted data.
  */
-std::vector<uint8_t> DigitalKeySecureContext::encrypt(unsigned char* plaintext, size_t data_size, const unsigned char* pcb, const unsigned char* key) {
+std::vector<uint8_t> ScbSecureChannel::encrypt(unsigned char* plaintext, size_t data_size, const unsigned char* pcb, const unsigned char* key) {
     if (data_size == 0) {
         return std::vector<uint8_t>();
     }
@@ -358,7 +319,7 @@ std::vector<uint8_t> DigitalKeySecureContext::encrypt(unsigned char* plaintext, 
  * 
  * @return a std::vector<uint8_t> object.
  */
-std::vector<uint8_t> DigitalKeySecureContext::decrypt(const unsigned char* ciphertext, size_t cipherTextLen, const unsigned char* pcb, const unsigned char* key) {
+std::vector<uint8_t> ScbSecureChannel::decrypt(const unsigned char* ciphertext, size_t cipherTextLen, const unsigned char* pcb, const unsigned char* key) {
     if (cipherTextLen == 0) {
         return std::vector<uint8_t>();
     }
@@ -404,7 +365,7 @@ std::vector<uint8_t> DigitalKeySecureContext::decrypt(const unsigned char* ciphe
  * 
  * @return a std::vector<uint8_t> object.
  */
-std::vector<uint8_t> DigitalKeySecureContext::concatenate_arrays(const unsigned char* a, const unsigned char* b, size_t size_a, size_t size_b) {
+std::vector<uint8_t> ScbSecureChannel::concatenate_arrays(const unsigned char* a, const unsigned char* b, size_t size_a, size_t size_b) {
     std::vector<uint8_t> result(size_a + size_b);
     memcpy(result.data(), a, size_a);
     memcpy(result.data() + size_a, b, size_b);

@@ -31,7 +31,6 @@ private:
   const std::function<void(const readerData_t&)> &save_cb;
   SecureBuffer<16> transactionIdentifier;
   std::vector<uint8_t> readerIdentifier;
-  std::vector<uint8_t> getHashIdentifier(const std::array<uint8_t,65>& key);
   std::vector<uint8_t> commandFlow(CommandFlowStatus status);
 	std::array<uint8_t,2> protocolVersion;
 	std::array<uint8_t,2> flags{0x01, 0x01};

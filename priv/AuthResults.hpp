@@ -2,11 +2,12 @@
 #include <memory>
 #include <array>
 #include "DDKReaderData.h" 
+#include "ScbSecureChannel.h"
 
 // Forward declarations of existing types
 struct hkIssuer_t;
 struct hkEndpoint_t;
-class DigitalKeySecureContext;
+class ScbSecureChannel;
 
 /**
  * Result of the Attestation (Initial Pairing/Handshake) flow.
@@ -35,7 +36,7 @@ struct AttestationVerificationResult {
 struct StandardAuthResult {
     hkIssuer_t* issuer = nullptr;
     hkEndpoint_t* endpoint = nullptr;
-    std::unique_ptr<DigitalKeySecureContext> secure_context;
+    std::unique_ptr<ScbSecureChannel> scb_context;
     std::array<uint8_t, 32> shared_secret;
     KeyFlow flow = kFlowFailed;
 

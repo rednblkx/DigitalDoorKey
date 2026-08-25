@@ -20,17 +20,6 @@
 #include <TLV8.hpp>
 #include "ddk/transport/ApduChannel.h"
 
-std::vector<uint8_t> DDKAuthenticationContext::getHashIdentifier(const std::array<uint8_t,65>& key) {
-  LOG(V, "%s", redactHex("Key", key).c_str());
-  std::vector<unsigned char> hashable;
-  hashable.insert(hashable.end(), key.begin(), key.end());
-  LOG_HEX(V, "Hashable", hashable);
-  std::vector<uint8_t> hash(32);
-  mbedtls_sha1(&hashable.front(), hashable.size(), hash.data());
-  LOG_HEX(V, "HashIdentifier", hash);
-  return hash;
-}
-
 /**
  * The function `HKAuthenticationContext::commandFlow` sends the command flow status APDU command
  * and returns the response.
@@ -225,8 +214,8 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
         }
       }
       if ((stdAuth.flow == kFlowNext || hkFlow == kFlowATTESTATION) &&
-          stdAuth.secure_context != nullptr && type != kAliro) {
-        auth_params.context = stdAuth.secure_context.get();
+          stdAuth.scb_context != nullptr && type != kAliro) {
+        auth_params.scb_context = stdAuth.scb_context.get();
         auto attestation = DDKAttestationAuth(auth_params).attest();
         if (attestation && (flowUsed = attestation.flow) == kFlowATTESTATION) {
           LOG(I, "ATTESTATION Flow complete, transaction took %lli ms", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - startTime).count());
@@ -239,7 +228,7 @@ AuthContextResult DDKAuthenticationContext::authenticate(KeyFlow hkFlow){
             std::array<uint8_t,65> devicePubKey = attestation.device_pub_key;
             std::vector<uint8_t> deviceKeyX = CommonCryptoUtils::get_x(attestation.device_pub_key);
             endpoint.endpoint_pk_x = deviceKeyX;
-            std::vector<uint8_t> eId = getHashIdentifier(devicePubKey);
+            std::vector<uint8_t> eId = CommonCryptoUtils::hash_identifier_sha1({devicePubKey.begin(), devicePubKey.end()});
             endpoint.endpoint_id = std::vector<uint8_t>{eId.begin(), eId.begin() + 6};
             endpoint.endpoint_pk.assign(devicePubKey.begin(), devicePubKey.end());
             endpoint.endpoint_prst_k.clear();

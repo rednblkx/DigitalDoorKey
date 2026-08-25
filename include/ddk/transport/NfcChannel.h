@@ -17,8 +17,9 @@ public:
     size_t max_command_payload() const override;
     ApduResponse transceive(ddk::span<const uint8_t> capdu) override;
     ApduResponse transceive_full(
-        ddk::span<const uint8_t> capdu,
-        bool skip_response_chaining = false) override;
+        const ApduCommand& command,
+        bool skip_response_chaining = false,
+        size_t max_command_chunk = 255) override;
 
 private:
     Callback callback_;

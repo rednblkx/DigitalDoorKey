@@ -61,6 +61,12 @@ std::vector<uint8_t> decryptAesGcm(
     const std::array<uint8_t, 12>& iv
 );
 
+std::vector<uint8_t> encryptAesGcm(
+    const std::vector<uint8_t>& plaintext,
+    const std::array<uint8_t, 32>& key,
+    const std::array<uint8_t, 12>& iv
+);
+
 std::tuple<std::vector<uint8_t>, std::vector<uint8_t>> generateEphemeralKey();
 
 void get_shared_key(
@@ -72,8 +78,18 @@ void get_shared_key(
 
 std::vector<uint8_t> signSharedInfo(const uint8_t *data, const size_t dataLen, const uint8_t *key, const size_t keyLen);
 
-std::vector<uint8_t> get_x(std::array<uint8_t,65> &pubKey);
+std::vector<uint8_t> get_x(const std::array<uint8_t,65> &pubKey);
+inline std::vector<uint8_t> get_x(const std::vector<uint8_t> &pubKey) {
+  if (pubKey.size() < 65) return {}; // Expect uncompressed point (0x04 + X + Y)
+  return std::vector<uint8_t>(pubKey.begin() + 1, pubKey.begin() + 33);
+}
+
 
 int esp_rng(void *, uint8_t *buf, size_t len);
 
+std::vector<uint8_t> derive_public_key(const std::vector<uint8_t>& private_key); // was HK_HomeKit::getPublicKey
+
+std::vector<uint8_t> hash_identifier_sha256(const std::vector<uint8_t>& key);    // SHA256("key-identifier"||key)
+
+std::vector<uint8_t> hash_identifier_sha1(const std::vector<uint8_t>& key);      // raw SHA-1
 } // namespace CommonCryptoUtils
