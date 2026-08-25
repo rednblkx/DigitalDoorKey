@@ -1,9 +1,12 @@
 #pragma once
-#include "ddk/store/ReaderIdentity.h"
-#include "ddk/store/Issuer.h"
 #include "ddk/Span.h"
+#include <cstdint>
 
 namespace ddk {
+
+class Issuer;
+class Endpoint;
+class ReaderIdentity;
 
 class CredentialStore {
 public:
