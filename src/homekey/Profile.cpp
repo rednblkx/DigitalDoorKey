@@ -2,6 +2,8 @@
 #include "AuthParams.h"
 #include "CommonCryptoUtils.h"
 #include "DDKReaderData.h"
+#include "HKFastAuth.h"
+#include "HKStandardAuth.h"
 #include "TLV8.hpp"
 #include "ddk/session/AuthOutcome.h"
 #include "ddk/session/Flow.h"
@@ -9,8 +11,6 @@
 #include "DDKLogging.h"
 #include "esp_random.h"
 #include "simple_tlv.hpp"
-#include "FastAuth.h"
-#include "StandardAuth.h"
 #include "AttestationAuth.h"
 #include <chrono>
 
@@ -99,7 +99,7 @@ FlowState Profile::step(Session& session, FlowState current)
         nullptr,                    // scb_context — set after STANDARD
         &session.apdu(),
     };
-  
+
     std::vector<uint8_t> fastTlv;
     fastTlv.reserve(transcript.protocol_version.size() + transcript.reader_eph_pub.size() + transcript.transaction_id.size() + transcript.reader_identifier.size() + 8); // +8 for TLV overhead
     auto version_tlv = simple_tlv(0x5C, transcript.protocol_version);
@@ -147,7 +147,7 @@ FlowState Profile::step(Session& session, FlowState current)
       const tlv_t *crypt = Auth0Res.expect(kAuth0_Cryptogram);
       if (crypt != nullptr) {
         std::vector<uint8_t> encryptedMessage = crypt->value;
-        auto fastAuth = DDKFastAuth(auth_params).attest(encryptedMessage);
+        auto fastAuth = HomeKeyFastAuth(session).attest(encryptedMessage);
         if (fastAuth && (flowUsed = fastAuth.flow) == kFlowFAST) {
             foundIssuer = fastAuth.issuer;
             foundEndpoint = fastAuth.endpoint;
@@ -158,7 +158,7 @@ FlowState Profile::step(Session& session, FlowState current)
       }
     }
     if(foundEndpoint == nullptr){
-      auto stdAuth = DDKStdAuth(auth_params).attest();
+      auto stdAuth = HomeKeyStdAuth(session).attest();
       if (stdAuth) {
         foundIssuer = stdAuth.issuer;
         foundEndpoint = stdAuth.endpoint;
@@ -166,7 +166,7 @@ FlowState Profile::step(Session& session, FlowState current)
         {
           LOG(D, "Endpoint %s Authenticated via STANDARD Flow", redactHex("", foundEndpoint->id.data(), foundEndpoint->id.size()).c_str());
           foundEndpoint->persistent_key.clear();
-          foundEndpoint->persistent_key.insert(foundEndpoint->persistent_key.begin(), stdAuth.shared_secret.begin(), stdAuth.shared_secret.end());
+          foundEndpoint->persistent_key.insert(foundEndpoint->persistent_key.begin(), stdAuth.persistent_key.begin(), stdAuth.persistent_key.end());
           LOG_HEX(V, "New Persistent Key", foundEndpoint->persistent_key);
         }
       }
@@ -178,7 +178,7 @@ FlowState Profile::step(Session& session, FlowState current)
           LOG(I, "ATTESTATION Flow complete, transaction took %lli ms", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - startTime).count());
           if(foundEndpoint != nullptr){
             foundEndpoint->persistent_key.clear();
-            foundEndpoint->persistent_key.insert(foundEndpoint->persistent_key.begin(), stdAuth.shared_secret.begin(), stdAuth.shared_secret.end());
+            foundEndpoint->persistent_key.insert(foundEndpoint->persistent_key.begin(), stdAuth.persistent_key.begin(), stdAuth.persistent_key.end());
           } else {
             ddk::Endpoint endpoint;
             foundIssuer = attestation.issuer;
@@ -189,7 +189,7 @@ FlowState Profile::step(Session& session, FlowState current)
             endpoint.id = std::vector<uint8_t>{eId.begin(), eId.begin() + 6};
             endpoint.public_key.assign(devicePubKey.begin(), devicePubKey.end());
             endpoint.persistent_key.clear();
-            endpoint.persistent_key.assign(stdAuth.shared_secret.begin(), stdAuth.shared_secret.end());
+            endpoint.persistent_key.assign(stdAuth.persistent_key.begin(), stdAuth.persistent_key.end());
             foundEndpoint = &(*foundIssuer->endpoints.emplace(foundIssuer->endpoints.end(),endpoint));
           }
           if(foundEndpoint != nullptr){

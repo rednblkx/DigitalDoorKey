@@ -1,9 +1,9 @@
 #include "aliro/Profile.h"
+#include "AliroStdAuth.h"
 #include "AuthParams.h"
 #include "BerTlv.h"
 #include "CommonCryptoUtils.h"
-#include "FastAuth.h"
-#include "StandardAuth.h"
+#include "AliroFastAuth.h"
 #include "TLV8.hpp"
 #include "ddk/session/AuthOutcome.h"
 #include "ddk/store/CredentialStore.h"
@@ -81,24 +81,6 @@ FlowState Profile::step(Session& session, FlowState current)
 
   std::array<uint8_t,2> flags = transcript.flags;
 
-  DDKAuthParams auth_params{
-      kAliro,                             // ← kAliro, not kHomeKey
-      store,
-      transcript.reader_eph_x,
-      transcript.endpoint_eph_pub,
-      transcript.endpoint_eph_x,
-      transcript.transaction_id,
-      transcript.reader_identifier,
-      transcript.fci_proprietary,         // ← from SELECT, not empty
-      transcript.protocol_version,        // {0x01, 0x00} from validate_select
-      nullptr, nullptr,
-      flags,
-      nullptr,
-      &session.apdu(),
-  };
-  auth_params.readerEphPrivKey = &transcript.reader_eph_priv;
-  auth_params.readerEphPubKey  = &transcript.reader_eph_pub;
-
   // AUTH0 APDU — Aliro adds 0x41/0x42 flags TLVs before common TLVs
   std::vector<uint8_t> fastTlv;
   auto txflags_tlv = simple_tlv(0x41, std::array<uint8_t,1>{flags[0]});
@@ -143,7 +125,7 @@ FlowState Profile::step(Session& session, FlowState current)
       const tlv_t *crypt = Auth0Res.expect(kAuth0_Cryptogram);
       if (crypt != nullptr) {
         std::vector<uint8_t> encryptedMessage = crypt->value;
-        auto fastAuth = DDKFastAuth(auth_params).attest(encryptedMessage);
+        auto fastAuth = AliroFastAuth(session).attest(encryptedMessage);
         if (fastAuth && (flowUsed = fastAuth.flow) == kFlowFAST) {
             foundIssuer = fastAuth.issuer;
             foundEndpoint = fastAuth.endpoint;
@@ -154,7 +136,7 @@ FlowState Profile::step(Session& session, FlowState current)
       }
     }
     if(foundEndpoint == nullptr){
-      auto stdAuth = DDKStdAuth(auth_params).attest();
+      auto stdAuth = AliroStdAuth(session).attest();
       if (stdAuth) {
         foundIssuer = stdAuth.issuer;
         foundEndpoint = stdAuth.endpoint;
@@ -162,7 +144,7 @@ FlowState Profile::step(Session& session, FlowState current)
         {
           LOG(D, "Endpoint %s Authenticated via STANDARD Flow", redactHex("", foundEndpoint->id.data(), foundEndpoint->id.size()).c_str());
           foundEndpoint->persistent_key.clear();
-          foundEndpoint->persistent_key.insert(foundEndpoint->persistent_key.begin(), stdAuth.shared_secret.begin(), stdAuth.shared_secret.end());
+          foundEndpoint->persistent_key.insert(foundEndpoint->persistent_key.begin(), stdAuth.persistent_key.begin(), stdAuth.persistent_key.end());
           LOG_HEX(V, "New Persistent Key", foundEndpoint->persistent_key);
         }
       }

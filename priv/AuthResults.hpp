@@ -36,28 +36,35 @@ struct AttestationVerificationResult {
     explicit operator bool() const { return issuer != nullptr; }
 };
 
-/**
- * Result of the Standard Authentication (Fast/Normal) flow.
- */
-struct StandardAuthResult {
-    ddk::Issuer* issuer = nullptr;
-    ddk::Endpoint* endpoint = nullptr;
-    std::unique_ptr<ScbSecureChannel> scb_context;
-    std::array<uint8_t, 32> shared_secret;
-    KeyFlow flow = kFlowFailed;
-
-    explicit operator bool() const {
-        return flow == kFlowSTANDARD && issuer != nullptr && endpoint != nullptr;
-    }
-};
-
-/**
- * Result of the Fast Authentication flow.
- */
 struct FastAuthResult {
     ddk::Issuer* issuer = nullptr;
     ddk::Endpoint* endpoint = nullptr;
     KeyFlow flow = kFlowFailed;
-
     explicit operator bool() const { return flow == kFlowFAST; }
+};
+
+struct HomeKeyStdAuthResult {
+    ddk::Issuer* issuer = nullptr;
+    ddk::Endpoint* endpoint = nullptr;
+    std::unique_ptr<ScbSecureChannel> scb_context;
+    std::array<uint8_t,32> persistent_key{};
+    KeyFlow flow = kFlowFailed;
+    explicit operator bool() const { return flow == kFlowSTANDARD && issuer && endpoint; }
+};
+
+struct AliroStdAuthResult {
+    ddk::Issuer* issuer = nullptr;
+    ddk::Endpoint* endpoint = nullptr;
+    std::array<uint8_t,32> exchange_sk_reader{};
+    std::array<uint8_t,32> exchange_sk_device{};
+    std::array<uint8_t,32> persistent_key{};
+    KeyFlow flow = kFlowFailed;
+    explicit operator bool() const { return flow == kFlowSTANDARD && issuer && endpoint; }
+};
+
+struct HomeKeyAttestationResult {
+    ddk::Issuer* issuer = nullptr;
+    std::array<uint8_t,65> device_pub_key{};
+    KeyFlow flow = kFlowFailed;
+    explicit operator bool() const { return flow == kFlowATTESTATION; }
 };
