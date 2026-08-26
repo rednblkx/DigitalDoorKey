@@ -1,6 +1,7 @@
 #pragma once
 #include "ddk/Span.h"
 #include "SecureBuffer.h"
+#include "ddk/session/SecureContext.h"
 #include "ddk/transport/ApduChannel.h"
 #include "ddk/session/Flow.h"
 #include <array>
@@ -60,15 +61,18 @@ public:
     const SessionConfig& config() const { return config_; }
     Transcript& transcript() { return transcript_; }
 
-    void* secure_context() const { return secure_context_; }
-    void set_secure_context(void* ctx) { secure_context_ = ctx; }
+    SecureContext* secure_context() const { return secure_context_.get(); }
+
+    void set_secure_context(std::unique_ptr<SecureContext> ctx) {
+        secure_context_ = std::move(ctx);
+    }
 
 private:
     std::shared_ptr<ApduChannel> apdu_;
     CredentialStore& store_;
     SessionConfig config_;
     Transcript transcript_;
-    void* secure_context_ = nullptr;
+    std::unique_ptr<SecureContext> secure_context_;
 };
 
 }  // namespace ddk

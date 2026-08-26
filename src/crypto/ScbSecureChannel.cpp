@@ -26,7 +26,7 @@
  * 
  * @return a std::tuple containing a std::vector<uint8_t> and a size_t.
  */
-std::tuple<std::vector<uint8_t>, size_t> ScbSecureChannel::pad_mode_3(unsigned char* message, size_t message_size, unsigned char pad_byte = 0x80, size_t block_size = 8) {
+std::tuple<std::vector<uint8_t>, size_t> ScbSecureChannel::pad_mode_3(const unsigned char* message, size_t message_size, unsigned char pad_byte = 0x80, size_t block_size = 8) {
     size_t totalLen = message_size;
     size_t padding_length = block_size - (totalLen + 1) % block_size;
     std::vector<uint8_t> buf(totalLen + padding_length + 1);
@@ -191,11 +191,11 @@ ScbSecureChannel::~ScbSecureChannel() {
  * with the calculated rmac. The second element of the tuple is `calculated_rmac`, which is a vector
  * containing the calculated rmac.
  */
-std::tuple<std::vector<uint8_t>, std::vector<uint8_t>> ScbSecureChannel::encrypt_command(unsigned char* data, size_t dataSize) {
+std::tuple<std::vector<uint8_t>, std::vector<uint8_t>> ScbSecureChannel::encrypt_command(ddk::span<const uint8_t> data) {
     LOG(D, "%s", redactHex("kenc", kenc, sizeof(kenc)).c_str());
     LOG(D, "%s", redactHex("kmac", kmac, sizeof(kmac)).c_str());
     LOG(D, "%s", redactHex("krmac", krmac, sizeof(krmac)).c_str());
-    std::vector<uint8_t> ciphertext = encrypt(data, dataSize, command_pcb, kenc);
+    std::vector<uint8_t> ciphertext = encrypt(data.data(), data.size(), command_pcb, kenc);
     ;
     std::vector<uint8_t> calculated_rmac(16);
     size_t input_dataSize = 16 + ciphertext.size();
@@ -268,7 +268,7 @@ std::vector<uint8_t> ScbSecureChannel::decrypt_response(const unsigned char* dat
  * 
  * @return a std::vector<uint8_t> object, which contains the encrypted data.
  */
-std::vector<uint8_t> ScbSecureChannel::encrypt(unsigned char* plaintext, size_t data_size, const unsigned char* pcb, const unsigned char* key) {
+std::vector<uint8_t> ScbSecureChannel::encrypt(const unsigned char* plaintext, size_t data_size, const unsigned char* pcb, const unsigned char* key) {
     if (data_size == 0) {
         return std::vector<uint8_t>();
     }

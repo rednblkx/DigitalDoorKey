@@ -1,5 +1,6 @@
 #pragma once
 #include "AuthResults.hpp"
+#include "HKSecureContext.h"
 #include "ddk/session/Profile.h"
 #include "ddk/store/CredentialStore.h"
 
@@ -16,15 +17,13 @@ public:
 
     AuthOutcome finalize(Session& session) override;
 
-    ApduResponse exchange(
-        Session& session, std::span<const uint8_t> tlvs) override;
-
     ApduResponse control_flow(
         Session& session, uint8_t s1, uint8_t s2) override;
 
 private:
     CredentialStore& store_;
     AuthContextResult result_;
+    std::unique_ptr<HKSecureContext> secure_context_;
     bool ran_ = false;
 };
 

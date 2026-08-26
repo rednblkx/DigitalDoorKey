@@ -6,7 +6,7 @@
 
 constexpr const char* TAG = "HKFastAuth";
 
-FastAuthResult HomeKeyFastAuth::attest(std::vector<uint8_t>& cryptogram)
+FastAuthResult HomeKeyFastAuth::attest(const std::vector<uint8_t>& cryptogram)
 {
     auto& t = session_.transcript();
     auto& store = session_.store();

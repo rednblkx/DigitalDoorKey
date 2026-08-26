@@ -80,150 +80,159 @@ FlowState Profile::step(Session& session, FlowState current)
     auto& transcript = session.transcript();
     auto& store = session.store();
 
-    std::array<uint8_t,2> flags = transcript.flags;
-    std::vector<uint8_t> aliroFCI;  // empty for HomeKey
-
-    DDKAuthParams auth_params{
-        kHomeKey,
-        store,
-        transcript.reader_eph_x,
-        transcript.endpoint_eph_pub,
-        transcript.endpoint_eph_x,
-        transcript.transaction_id,
-        transcript.reader_identifier,
-        aliroFCI,
-        transcript.protocol_version,
-        &transcript.reader_eph_priv,
-        &transcript.reader_eph_pub,
-        flags,
-        nullptr,                    // scb_context — set after STANDARD
-        &session.apdu(),
-    };
+    // --- AUTH0 (always) ---
 
     std::vector<uint8_t> fastTlv;
-    fastTlv.reserve(transcript.protocol_version.size() + transcript.reader_eph_pub.size() + transcript.transaction_id.size() + transcript.reader_identifier.size() + 8); // +8 for TLV overhead
+    fastTlv.reserve(transcript.protocol_version.size() +
+                    transcript.reader_eph_pub.size() +
+                    transcript.transaction_id.size() +
+                    transcript.reader_identifier.size() + 8);
     auto version_tlv = simple_tlv(0x5C, transcript.protocol_version);
     std::copy(version_tlv.begin(), version_tlv.end(), std::back_inserter(fastTlv));
-
     auto reader_pk_tlv = simple_tlv(0x87, transcript.reader_eph_pub);
     std::copy(reader_pk_tlv.begin(), reader_pk_tlv.end(), std::back_inserter(fastTlv));
-
     auto txId_tlv = simple_tlv(0x4C, transcript.transaction_id);
     std::copy(txId_tlv.begin(), txId_tlv.end(), std::back_inserter(fastTlv));
-
     auto reader_id_tlv = simple_tlv(0x4D, transcript.reader_identifier);
     std::copy(reader_id_tlv.begin(), reader_id_tlv.end(), std::back_inserter(fastTlv));
-    std::vector<uint8_t> apdu{0x80, 0x80, transcript.flags[0], flags[1], static_cast<uint8_t>(fastTlv.size())};
 
-    apdu.insert(apdu.end(), std::make_move_iterator(fastTlv.begin()), std::make_move_iterator(fastTlv.end()));
+    std::vector<uint8_t> apdu{0x80, 0x80, transcript.flags[0], transcript.flags[1],
+                              static_cast<uint8_t>(fastTlv.size())};
+    apdu.insert(apdu.end(), std::make_move_iterator(fastTlv.begin()),
+                std::make_move_iterator(fastTlv.end()));
     LOG(D, "%s", redactHex("Auth0 APDU", apdu).c_str());
     auto response = session.apdu().transceive(apdu);
-#if defined(CONFIG_IDF_CMAKE)
-    ESP_LOG_BUFFER_HEX_LEVEL(TAG, response.data.data(), response.data.size(), ESP_LOG_VERBOSE);
-#else
-    for (int i = 0; i < response.data.size(); i++) {
-      printf("%02X", response.data[i]);
-    }
-#endif
     LOG(D, "%s", redactHex("Auth0 Response", response.data).c_str());
-  if (response.ok() && response.data.size() > 64 && response.data[0] == 0x86) {
+
+    if (!response.ok() || response.data.size() <= 64 || response.data[0] != 0x86) {
+        LOG(E, "Auth0 response invalid");
+        control_flow(session, kCmdFlowFailed, 0x0);
+        return FlowState::Failed;
+    }
+
     TLV8 Auth0Res;
     Auth0Res.parse(response.data.data(), response.data.size());
-    const tlv_t *pubkey = Auth0Res.expect(kEndpoint_Public_Key);
-    // SEC1 uncompressed P-256 point: 0x04 prefix || X (32 bytes) || Y (32 bytes).
+    const tlv_t* pubkey = Auth0Res.expect(kEndpoint_Public_Key);
     constexpr size_t kP256UncompressedPublicKeySize = 1 + 32 + 32;
     if (!Auth0Res.ok() || pubkey == nullptr ||
         pubkey->value.size() != kP256UncompressedPublicKeySize) {
-      LOG(E, "Auth0 response is malformed or has an invalid endpoint public key");
-      control_flow(session, kCmdFlowFailed, 0x0);
-      return FlowState::Failed;
+        LOG(E, "Auth0 response is malformed or has an invalid endpoint public key");
+        control_flow(session, kCmdFlowFailed, 0x0);
+        return FlowState::Failed;
     }
     transcript.endpoint_eph_pub = pubkey->value;
     transcript.endpoint_eph_x = CommonCryptoUtils::get_x(transcript.endpoint_eph_pub);
-    ddk::Issuer *foundIssuer = nullptr;
-    ddk::Endpoint *foundEndpoint = nullptr;
-    KeyFlow flowUsed = kFlowFailed;
-    if (session.config().target_flow == Flow::Fast) {
-      const tlv_t *crypt = Auth0Res.expect(kAuth0_Cryptogram);
-      if (crypt != nullptr) {
-        std::vector<uint8_t> encryptedMessage = crypt->value;
-        auto fastAuth = HomeKeyFastAuth(session).attest(encryptedMessage);
-        if (fastAuth && (flowUsed = fastAuth.flow) == kFlowFAST) {
-            foundIssuer = fastAuth.issuer;
-            foundEndpoint = fastAuth.endpoint;
-            LOG(D, "Endpoint %s Authenticated via FAST Flow", redactHex("", foundEndpoint->id.data(), foundEndpoint->id.size()).c_str());
-        }
-      } else {
-        LOG(W, "Auth0 cryptogram missing; moving to STANDARD Flow");
-      }
-    }
-    if(foundEndpoint == nullptr){
-      auto stdAuth = HomeKeyStdAuth(session).attest();
-      if (stdAuth) {
-        foundIssuer = stdAuth.issuer;
-        foundEndpoint = stdAuth.endpoint;
-        if ((flowUsed = stdAuth.flow) == kFlowSTANDARD)
-        {
-          LOG(D, "Endpoint %s Authenticated via STANDARD Flow", redactHex("", foundEndpoint->id.data(), foundEndpoint->id.size()).c_str());
-          foundEndpoint->persistent_key.clear();
-          foundEndpoint->persistent_key.insert(foundEndpoint->persistent_key.begin(), stdAuth.persistent_key.begin(), stdAuth.persistent_key.end());
-          LOG_HEX(V, "New Persistent Key", foundEndpoint->persistent_key);
-        }
-      }
-      if ((stdAuth.flow == kFlowNext || session.config().target_flow == Flow::StepUp) &&
-          stdAuth.scb_context != nullptr) {
-        auth_params.scb_context = stdAuth.scb_context.get();
-        auto attestation = DDKAttestationAuth(auth_params).attest();
-        if (attestation && (flowUsed = attestation.flow) == kFlowATTESTATION) {
-          LOG(I, "ATTESTATION Flow complete, transaction took %lli ms", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - startTime).count());
-          if(foundEndpoint != nullptr){
-            foundEndpoint->persistent_key.clear();
-            foundEndpoint->persistent_key.insert(foundEndpoint->persistent_key.begin(), stdAuth.persistent_key.begin(), stdAuth.persistent_key.end());
-          } else {
-            ddk::Endpoint endpoint;
-            foundIssuer = attestation.issuer;
-            const std::array<uint8_t,65> devicePubKey = attestation.device_pub_key;
-            std::vector<uint8_t> deviceKeyX = CommonCryptoUtils::get_x(attestation.device_pub_key);
-            endpoint.public_key_x = deviceKeyX;
-            std::vector<uint8_t> eId = CommonCryptoUtils::hash_identifier_sha1({devicePubKey.begin(), devicePubKey.end()});
-            endpoint.id = std::vector<uint8_t>{eId.begin(), eId.begin() + 6};
-            endpoint.public_key.assign(devicePubKey.begin(), devicePubKey.end());
-            endpoint.persistent_key.clear();
-            endpoint.persistent_key.assign(stdAuth.persistent_key.begin(), stdAuth.persistent_key.end());
-            foundEndpoint = &(*foundIssuer->endpoints.emplace(foundIssuer->endpoints.end(),endpoint));
-          }
-          if(foundEndpoint != nullptr){
-            LOG_HEX(V, "New Persistent Key", foundEndpoint->persistent_key);
-            LOG(D, "Endpoint %s Authenticated via ATTESTATION Flow", redactHex("", foundEndpoint->id.data(), foundEndpoint->id.size()).c_str());
-          }
-        } else LOG(E, "STEPUP FAILED");
-      }
-      if(flowUsed >= kFlowSTANDARD){
-        store.save();
-      }
-    }
-    if (foundIssuer != nullptr && foundEndpoint != nullptr && flowUsed != kFlowFailed) {
-        if (flowUsed < kFlowATTESTATION) {
-          auto cf = control_flow(session, kCmdFlowSuccess, 0x0);
-          if (!cf.ok()) {
-              LOG(E, "Control Flow response not 0x90");
-              result_.flow = kFlowFailed;
-              return FlowState::Failed;
-          }
-        }
 
-        result_.issuer_id = foundIssuer->id;
-        result_.endpoint_id = foundEndpoint->id;
-        result_.flow = flowUsed;
-        return FlowState::Done;
-    } else {
-      control_flow(session, kCmdFlowFailed, 0x00);
-      return FlowState::Failed;
+    // --- Ladder state ---
+
+    ddk::Issuer* foundIssuer = nullptr;
+    ddk::Endpoint* foundEndpoint = nullptr;
+    KeyFlow flowUsed = kFlowFailed;
+    std::array<uint8_t,32> persistentKey{};
+
+    auto target = session.config().target_flow;
+
+    // --- Rung 1: FAST (entry rung only — cryptogram check is pointless after STANDARD) ---
+
+    if (target == Flow::Fast) {
+        const tlv_t* crypt = Auth0Res.expect(kAuth0_Cryptogram);
+        if (crypt != nullptr) {
+            auto fast = HomeKeyFastAuth(session).attest(crypt->value);
+            if (fast && (flowUsed = fast.flow) == kFlowFAST) {
+                foundIssuer = fast.issuer;
+                foundEndpoint = fast.endpoint;
+                LOG(D, "Endpoint %s Authenticated via FAST Flow",
+                    redactHex("", foundEndpoint->id.data(), foundEndpoint->id.size()).c_str());
+            } else {
+                LOG(W, "FAST missed — descending to STANDARD");
+            }
+        } else {
+            LOG(W, "Auth0 cryptogram missing — descending to STANDARD");
+        }
     }
-  }
-  control_flow(session, kCmdFlowFailed, 0x00);
-  LOG(E, "Response not valid, something went wrong!");
-  return FlowState::Failed;
+
+    // --- Rung 2: STANDARD (if FAST didn't hit, or wasn't the entry rung) ---
+
+    if (foundEndpoint == nullptr) {
+        auto std = HomeKeyStdAuth(session).attest();
+
+        if (std.flow == kFlowSTANDARD && std.issuer && std.endpoint) {
+            foundIssuer = std.issuer;
+            foundEndpoint = std.endpoint;
+            flowUsed = kFlowSTANDARD;
+            persistentKey = std.persistent_key;
+            LOG(D, "Endpoint %s Authenticated via STANDARD Flow",
+                redactHex("", foundEndpoint->id.data(), foundEndpoint->id.size()).c_str());
+        } else if (std.flow == kFlowFailed || !std.scb_context) {
+            LOG(E, "STANDARD failed with no secure channel — cannot continue");
+            control_flow(session, kCmdFlowFailed, 0x0);
+            return FlowState::Failed;
+        }
+        persistentKey = std.persistent_key;
+
+        // The channel becomes the session's secure context regardless of
+        // STANDARD's outcome — attestation (next rung) and post-auth
+        // exchange both need it.
+        if (std.scb_context != nullptr) {
+            auto ctx = std::make_unique<HKSecureContext>(
+                std::move(std.scb_context));
+            HKSecureContext* ctx_raw = ctx.get();
+            session.set_secure_context(std::move(ctx));
+
+            // --- Rung 3: StepUp ---
+            if (std.flow == kFlowNext || target == Flow::StepUp) {
+                auto att = HKAttestationAuth(session, ctx_raw->channel()).attest();
+                if (att && (flowUsed = att.flow) == kFlowATTESTATION) {
+                    foundIssuer = att.issuer;
+                    if (foundEndpoint == nullptr) {
+                        ddk::Endpoint endpoint;
+                        const std::array<uint8_t,65> devicePubKey = att.device_pub_key;
+                        endpoint.public_key_x = CommonCryptoUtils::get_x(att.device_pub_key);
+                        auto eId = CommonCryptoUtils::hash_identifier_sha1(
+                            {devicePubKey.begin(), devicePubKey.end()});
+                        endpoint.id.assign(eId.begin(), eId.begin() + 6);
+                        endpoint.public_key.assign(devicePubKey.begin(), devicePubKey.end());
+                        foundEndpoint = &(*foundIssuer->endpoints.emplace(
+                            foundIssuer->endpoints.end(), std::move(endpoint)));
+                    }
+                    LOG(I, "ATTESTATION Flow complete, transaction took %lli ms",
+                        std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::high_resolution_clock::now() - startTime).count());
+                    LOG(D, "Endpoint %s Authenticated via ATTESTATION Flow",
+                        redactHex("", foundEndpoint->id.data(), foundEndpoint->id.size()).c_str());
+                } else {
+                    LOG(E, "ATTESTATION failed");
+                }
+            }
+        }
+    }
+
+    if (foundIssuer == nullptr || foundEndpoint == nullptr || flowUsed == kFlowFailed) {
+        control_flow(session, kCmdFlowFailed, 0x0);
+        return FlowState::Failed;
+    }
+
+    if (persistentKey != std::array<uint8_t,32>{}) {
+        foundEndpoint->persistent_key.assign(persistentKey.begin(), persistentKey.end());
+        LOG_HEX(V, "New Persistent Key", foundEndpoint->persistent_key);
+        store.save();
+    }
+
+    // CONTROL FLOW success (FAST and STANDARD rungs; ATTESTATION already
+    // sent its own 0x40 inside the attestation flow itself)
+    if (flowUsed < kFlowATTESTATION) {
+        auto cf = control_flow(session, kCmdFlowSuccess, 0x0);
+        if (!cf.ok()) {
+            LOG(E, "Control Flow response not 0x90");
+            result_.flow = kFlowFailed;
+            return FlowState::Failed;
+        }
+    }
+
+    result_.issuer_id = foundIssuer->id;
+    result_.endpoint_id = foundEndpoint->id;
+    result_.flow = flowUsed;
+    return FlowState::Done;
 }
 
 AuthOutcome Profile::finalize(Session& session)
@@ -257,15 +266,6 @@ AuthOutcome Profile::finalize(Session& session)
     }
 
     return outcome;
-}
-
-ApduResponse Profile::exchange(
-    Session& session, std::span<const uint8_t> tlvs)
-{
-    // Post-auth EXCHANGE via SCB secure channel.
-    // Not implemented yet — attestation manages its own exchange internally.
-    // Will be filled when the secure context is exposed from the auth flow.
-    return {};
 }
 
 ApduResponse Profile::control_flow(

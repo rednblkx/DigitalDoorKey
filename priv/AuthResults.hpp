@@ -16,20 +16,9 @@ struct AuthContextResult {
 };
 
 /**
- * Result of the Attestation (Initial Pairing/Handshake) flow.
- */
-struct AttestationResult {
-    ddk::Issuer* issuer = nullptr;
-    std::array<uint8_t,65> device_pub_key{};
-    KeyFlow flow = kFlowFailed;
-
-    explicit operator bool() const { return issuer != nullptr && flow == kFlowATTESTATION; }
-};
-
-/**
  * Result of verifying the attestation response.
  */
-struct AttestationVerificationResult {
+struct HKAttestationVerificationResult {
     ddk::Issuer* issuer = nullptr;
     std::array<uint8_t, 65> device_pub_key{};
 
@@ -62,7 +51,7 @@ struct AliroStdAuthResult {
     explicit operator bool() const { return flow == kFlowSTANDARD && issuer && endpoint; }
 };
 
-struct HomeKeyAttestationResult {
+struct HKAttestationResult {
     ddk::Issuer* issuer = nullptr;
     std::array<uint8_t,65> device_pub_key{};
     KeyFlow flow = kFlowFailed;

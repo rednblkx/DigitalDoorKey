@@ -1,5 +1,4 @@
 #include "HomeKeyKeySchedule.h"
-#include "CommonCryptoUtils.h"
 #include "DDKLogging.h"
 #include <cstring>
 #include <mbedtls/hkdf.h>

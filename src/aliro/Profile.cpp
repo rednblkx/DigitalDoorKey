@@ -195,15 +195,6 @@ AuthOutcome Profile::finalize(Session& session)
     return outcome;
 }
 
-ApduResponse Profile::exchange(
-    Session& session, std::span<const uint8_t> tlvs)
-{
-    // Post-auth EXCHANGE via GCM secure channel.
-    // Not implemented yet — the secure context isn't exposed from the auth flow.
-    // Will be filled when AliroSecureContext is integrated.
-    return {};
-}
-
 ApduResponse Profile::control_flow(
     Session& session, uint8_t s1, uint8_t s2)
 {

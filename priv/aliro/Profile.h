@@ -16,9 +16,6 @@ public:
 
     AuthOutcome finalize(Session& session) override;
 
-    ApduResponse exchange(
-        Session& session, std::span<const uint8_t> tlvs) override;
-
     ApduResponse control_flow(
         Session& session, uint8_t s1, uint8_t s2) override;
 
