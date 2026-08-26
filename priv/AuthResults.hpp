@@ -7,6 +7,15 @@
 #include "ddk/store/Issuer.h"
 
 /**
+ * Result of the higher-level Context authentication.
+ */
+struct AuthContextResult {
+    std::vector<uint8_t> issuer_id;
+    std::vector<uint8_t> endpoint_id;
+    KeyFlow flow = kFlowFailed;
+};
+
+/**
  * Result of the Attestation (Initial Pairing/Handshake) flow.
  */
 struct AttestationResult {
