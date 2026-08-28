@@ -33,8 +33,6 @@ std::vector<uint8_t> build_fast_salt(
     salt.insert(salt.end(), input.transaction_id.begin(), input.transaction_id.end());
     salt.push_back(input.flags[0]);
     salt.push_back(input.flags[1]);
-    salt.push_back(0xA5);
-    salt.push_back(static_cast<uint8_t>(input.fci_proprietary.size()));
     salt.insert(salt.end(), input.fci_proprietary.begin(), input.fci_proprietary.end());
     salt.insert(salt.end(), endpoint_pk_x.begin(), endpoint_pk_x.end());
     return salt;
@@ -63,8 +61,6 @@ std::vector<uint8_t> build_standard_salt(
     salt.insert(salt.end(), input.transaction_id.begin(), input.transaction_id.end());
     salt.push_back(input.flags[0]);
     salt.push_back(input.flags[1]);
-    salt.push_back(0xA5);
-    salt.push_back(static_cast<uint8_t>(input.fci_proprietary.size()));
     salt.insert(salt.end(), input.fci_proprietary.begin(), input.fci_proprietary.end());
     if (context == kPersistent) {
         salt.insert(salt.end(), endpoint_pk_x.begin(), endpoint_pk_x.end());
@@ -113,6 +109,13 @@ AliroKeySchedule::VolatileResult AliroKeySchedule::derive_volatile(
         okm.data(), 160);
     std::copy_n(okm.data() + 0x00, 32, result.exchange_sk_reader.begin());
     std::copy_n(okm.data() + 0x20, 32, result.exchange_sk_device.begin());
+    std::array<uint8_t,32> step_up_input{};
+    std::copy_n(okm.data() + 0x40, 32, step_up_input.data());
+    constexpr std::array<uint8_t,32> kZeroSalt{};
+    mbedtls_hkdf(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), kZeroSalt.data(), 32, step_up_input.data(), 32,
+                (const uint8_t*)"SKReader", 8, result.step_up_sk_reader.data(), 32);
+    mbedtls_hkdf(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), kZeroSalt.data(), 32, step_up_input.data(), 32,
+                (const uint8_t*)"SKDevice", 8, result.step_up_sk_device.data(), 32);
     return result;
 }
 

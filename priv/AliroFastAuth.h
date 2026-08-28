@@ -5,7 +5,7 @@
 class AliroFastAuth {
 public:
     explicit AliroFastAuth(ddk::Session& session) : session_(session) {}
-    FastAuthResult attest(std::vector<uint8_t>& cryptogram);
+    FastAuthResult attest(const std::vector<uint8_t>& cryptogram);
 private:
     ddk::Session& session_;
 };

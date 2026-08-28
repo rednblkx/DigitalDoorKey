@@ -2,6 +2,7 @@
 #include "AuthResults.hpp"
 #include "ddk/session/Profile.h"
 #include "ddk/store/CredentialStore.h"
+#include "ddk/aliro/ReaderStatus.h"
 
 namespace ddk::aliro {
 
@@ -10,10 +11,11 @@ public:
     explicit Profile(CredentialStore& store);
 
     FailureReason validate_select(
-        Session& session, std::span<const uint8_t> select_response) override;
+        Session& session, ddk::span<const uint8_t> select_response) override;
 
     FlowState step(Session& session, FlowState current) override;
 
+    bool complete(Session& session, ReaderStatus status);
     AuthOutcome finalize(Session& session) override;
 
     ApduResponse control_flow(

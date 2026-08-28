@@ -1,8 +1,11 @@
 #pragma once
 #include <memory>
 #include <array>
-#include "DDKReaderData.h" 
+#include <optional>
+#include "DDKReaderData.h"
+#include "GcmSecureChannel.h"
 #include "ScbSecureChannel.h"
+#include "ddk/aliro/SignalingBitmask.h"
 #include "ddk/store/CredentialStore.h"
 #include "ddk/store/Issuer.h"
 
@@ -29,6 +32,8 @@ struct FastAuthResult {
     ddk::Issuer* issuer = nullptr;
     ddk::Endpoint* endpoint = nullptr;
     KeyFlow flow = kFlowFailed;
+    std::array<uint8_t,32> exchange_sk_reader{};
+    std::array<uint8_t,32> exchange_sk_device{};
     explicit operator bool() const { return flow == kFlowFAST; }
 };
 
@@ -44,9 +49,15 @@ struct HomeKeyStdAuthResult {
 struct AliroStdAuthResult {
     ddk::Issuer* issuer = nullptr;
     ddk::Endpoint* endpoint = nullptr;
-    std::array<uint8_t,32> exchange_sk_reader{};
-    std::array<uint8_t,32> exchange_sk_device{};
+    std::unique_ptr<GcmSecureChannel> gcm_context;
+    std::array<uint8_t,32> step_up_sk_reader{};
+    std::array<uint8_t,32> step_up_sk_device{};
     std::array<uint8_t,32> persistent_key{};
+    std::array<uint8_t,32> derived_key{};
+    std::vector<uint8_t> key_slot;
+    std::optional<std::array<uint8_t,2>> signaling_bitmap{};
+    std::vector<uint8_t> credential_signed_timestamp;
+    std::vector<uint8_t> revocation_signed_timestamp;
     KeyFlow flow = kFlowFailed;
     explicit operator bool() const { return flow == kFlowSTANDARD && issuer && endpoint; }
 };

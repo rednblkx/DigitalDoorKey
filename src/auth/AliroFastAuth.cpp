@@ -4,8 +4,12 @@
 #include "TLV8.hpp"
 #include "ddk/store/ReaderIdentity.h"
 
-FastAuthResult AliroFastAuth::attest(std::vector<uint8_t>& cryptogram)
+FastAuthResult AliroFastAuth::attest(const std::vector<uint8_t>& cryptogram)
 {
+    constexpr size_t kAliroCryptogramLength = 64;
+    if (cryptogram.size() != kAliroCryptogramLength) {
+        return {nullptr, nullptr, kFlowNext};
+    }
     auto& t = session_.transcript();
     auto& store = session_.store();
 
@@ -35,8 +39,8 @@ FastAuthResult AliroFastAuth::attest(std::vector<uint8_t>& cryptogram)
             if (!plaintext.empty()) {
                 TLV8 tlv;
                 tlv.parse(plaintext.data(), plaintext.size());
-                if (tlv.expect(0x5E) && tlv.expect(0x91) && tlv.expect(0x92)) {
-                    return {&issuer, &endpoint, kFlowFAST};
+                if (tlv.expect(0x5E) && tlv.expect(0x91) && tlv.expect(0x92)) {          
+                    return {&issuer, &endpoint, kFlowFAST, result.exchange_sk_reader, result.exchange_sk_device};
                 }
             }
         }

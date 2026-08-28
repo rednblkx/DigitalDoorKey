@@ -122,22 +122,29 @@ AliroStdAuthResult AliroStdAuth::attest()
     LOG(D, "Exchange SK Device - %s",
         redactHex("", skDevice.data(), 32).c_str());
 
+    AliroStdAuthResult result;
+    result.step_up_sk_reader = vol.step_up_sk_reader;
+    result.step_up_sk_device = vol.step_up_sk_device;
+    result.derived_key = derivedKey;
+
     // --- Decrypt AUTH1 response via GCM ---
 
     constexpr size_t minSecureResponseSize = 16; // minimum: GCM tag
     if (!response.ok() || response.data.size() < minSecureResponseSize) {
         LOG(E, "STANDARD: Auth1 response too short or bad SW");
-        return {};
+        return result;
     }
 
-    GcmSecureChannel gcm(skReader, skDevice);
-    auto decrypted = gcm.decrypt_endpoint_data(response.data);
+    auto gcm = std::make_unique<GcmSecureChannel>(skReader, skDevice);
+    auto decrypted = gcm->decrypt_endpoint_data(response.data);
     if (decrypted.empty()) {
         LOG(E, "STANDARD: GCM decrypt failed (tag mismatch)");
-        return {};
+        return result;
     }
 
     LOG(D, "%s", redactHex("Decrypted", decrypted).c_str());
+
+    result.gcm_context = std::move(gcm);
 
     // --- Parse decrypted TLV ---
 
@@ -147,12 +154,25 @@ AliroStdAuthResult AliroStdAuth::attest()
     auto sigItem = tlv.expect(0x9E);
     if (!sigItem) {
         LOG(E, "STANDARD: missing device signature (0x9E)");
-        return {};
+        return result;
     }
     std::vector<uint8_t> signature = sigItem->value;
     if (signature.size() != 64) {
         LOG(E, "STANDARD: invalid signature length: %zu", signature.size());
-        return {};
+        return result;
+    }
+
+    if (auto bm = tlv.expect(0x5E); bm && bm->value.size() == 2) {
+        result.signaling_bitmap = std::array<uint8_t,2>{bm->value[0], bm->value[1]};
+    }
+    if (auto ks = tlv.expect(0x4E); ks && ks->value.size() == 8) {
+        result.key_slot = ks->value;
+    }
+    if (auto ts = tlv.expect(0x91); ts && ts->value.size() == 20) {
+        result.credential_signed_timestamp = ts->value;
+    }
+    if (auto ts = tlv.expect(0x92); ts && ts->value.size() == 20) {
+        result.revocation_signed_timestamp = ts->value;
     }
 
     // Aliro: find endpoint by public key (0x5A)
@@ -188,18 +208,23 @@ AliroStdAuthResult AliroStdAuth::attest()
         if (slotItem && slotItem->value.size() == 8) {
             for (auto& issuer : store.issuers()) {
                 for (auto& endpoint : issuer.endpoints) {
-                    // TODO: match by key_slot when AliroEndpointData lands
+                    auto hash = CommonCryptoUtils::hash_identifier_sha1(endpoint.public_key);
+                    if (hash.size() >= 8 &&
+                        std::equal(slotItem->value.begin(), slotItem->value.end(),
+                                  hash.begin())) {
+                        foundIssuer = &issuer;
+                        foundEndpoint = &endpoint;
+                        break;
+                    }
                 }
+                if (foundEndpoint) break;
             }
         }
     }
 
     if (!foundEndpoint) {
         LOG(W, "STANDARD: endpoint not found");
-        AliroStdAuthResult result;
         result.flow = kFlowFailed;
-        result.exchange_sk_reader = skReader;
-        result.exchange_sk_device = skDevice;
         return result;
     }
 
@@ -228,10 +253,7 @@ AliroStdAuthResult AliroStdAuth::attest()
     ret = mbedtls_ecdsa_verify(grp, hash, 32, Q, r, s);
     if (ret != 0) {
         LOG(W, "STANDARD: signature verification failed: %d", ret);
-        AliroStdAuthResult result;
         result.flow = kFlowFailed;
-        result.exchange_sk_reader = skReader;
-        result.exchange_sk_device = skDevice;
         return result;
     }
 
@@ -244,11 +266,8 @@ AliroStdAuthResult AliroStdAuth::attest()
 
     LOG_HEX(D, "Persistent Key", persistentKey);
 
-    AliroStdAuthResult result;
     result.issuer = foundIssuer;
     result.endpoint = foundEndpoint;
-    result.exchange_sk_reader = skReader;
-    result.exchange_sk_device = skDevice;
     result.persistent_key = persistentKey;
     result.flow = kFlowSTANDARD;
     return result;

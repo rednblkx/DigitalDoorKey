@@ -1,6 +1,7 @@
 #include "aliro/Profile.h"
+#include "AliroKeySchedule.h"
 #include "AliroStdAuth.h"
-#include "AuthParams.h"
+#include "AliroStepUp.h"
 #include "BerTlv.h"
 #include "CommonCryptoUtils.h"
 #include "AliroFastAuth.h"
@@ -8,8 +9,11 @@
 #include "ddk/session/AuthOutcome.h"
 #include "ddk/store/CredentialStore.h"
 #include "DDKLogging.h"
+#include "esp_random.h"
 #include "simple_tlv.hpp"
 #include <cstring>
+#include "AliroSecureContext.h"
+#include "ddk/store/ReaderIdentity.h"
 
 namespace ddk::aliro {
 
@@ -18,7 +22,7 @@ constexpr const char* TAG = "AliroProfile";
 Profile::Profile(CredentialStore& store) : store_(store) {}
 
 FailureReason Profile::validate_select(
-    Session& session, std::span<const uint8_t> select_response)
+    Session& session, ddk::span<const uint8_t> select_response)
 {
     size_t len = select_response.size();
     if (len >= 2 &&
@@ -27,29 +31,37 @@ FailureReason Profile::validate_select(
         len -= 2;
     }
 
-    auto fci = BerTlvMessage::from_bytes(select_response.data(), len);
+    auto select_parsed = BerTlvMessage::from_bytes(select_response.data(), len);
 
-    const BerTlv* proprietary = fci.find(0xA5);
-    if (!proprietary) {
-        LOG(E, "Aliro SELECT: missing FCI proprietary template (0xA5)");
+    const BerTlv* fci = select_parsed.find(0x6F);
+    if (!fci) {
+        LOG(E, "Aliro SELECT: missing FCI template (0x6F)");
+        return FailureReason::VersionMismatch;
+    }
+    auto fci_inner = fci->parse_inner();
+    const BerTlv* proprietary = fci_inner.find(0xA5);
+
+    auto proprietary_inner = proprietary->parse_inner();
+    const BerTlv* version = proprietary_inner.find(0x5C);
+    if (!version || version->value.empty() || version->value.size() % 2 != 0) {
+        LOG(E, "Aliro SELECT: missing or malformed version list (0x5C)");
+        return FailureReason::VersionMismatch;
+    }
+    bool v10_supported = false;
+    for (size_t i = 0; i + 1 < version->value.size(); i += 2) {
+        if (version->value[i] == 0x01 && version->value[i + 1] == 0x00) {
+            v10_supported = true;
+            break;
+        }
+    }
+    if (!v10_supported) {
+        LOG(E, "Aliro v1.0 not in supported versions list (%zu bytes)",
+            version->value.size());
         return FailureReason::VersionMismatch;
     }
 
-    auto inner = proprietary->parse_inner();
-
-    const BerTlv* version = inner.find(0x5C);
-    if (!version || version->value.size() < 2) {
-        LOG(E, "Aliro SELECT: missing protocol version (0x5C)");
-        return FailureReason::VersionMismatch;
-    }
-
-    if (version->value[0] != 0x01 || version->value[1] != 0x00) {
-        LOG(E, "Aliro v1.0 required, got %02X.%02X",
-             version->value[0], version->value[1]);
-        return FailureReason::VersionMismatch;
-    }
-
-    const BerTlv* ext_info = inner.find({0x7F, 0x66});
+    const std::array<uint8_t,2> ext_info_tag{0x7F, 0x66};
+    const BerTlv* ext_info = proprietary_inner.find(ext_info_tag);
     if (ext_info) {
         auto ext_inner = ext_info->parse_inner();
         const BerTlv* max_recv = ext_inner.find(0x02);
@@ -61,11 +73,41 @@ FailureReason Profile::validate_select(
         }
     }
 
-    auto& transcript = session.transcript();
-    transcript.fci_proprietary.assign(select_response.data(), select_response.data() + len);
-    transcript.protocol_version = {0x01, 0x00};
-    transcript.interface = 0x5E;  // NFC — verify against interface.py
+    const auto& identity = session.store().reader_identity();
+    if (identity.group_identifier.size() != 16 ||
+        identity.sub_identifier.size() != 16) {
+        LOG(E, "Aliro reader identity must be gid(16)+sub(16), got %zu+%zu",
+            identity.group_identifier.size(), identity.sub_identifier.size());
+        return FailureReason::ChannelError;   // misprovisioned — fail fast
+    }
 
+    auto& transcript = session.transcript();
+  
+    transcript.protocol_version = {0x01, 0x00};
+    transcript.flags[0] = (session.config().target_flow == Flow::Fast) ? 0x01 : 0x00;
+    transcript.flags[1] = session.config().authentication_policy;
+    transcript.interface = static_cast<uint8_t>(session.apdu().kind());
+    auto& fci_buffer = transcript.fci_proprietary;
+    fci_buffer.clear();
+    fci_buffer.push_back(0xA5);
+    const auto& pv = proprietary->value;
+    if (pv.size() < 0x80) {
+        fci_buffer.push_back(static_cast<uint8_t>(pv.size()));
+    } else if (pv.size() <= 0xFF) {
+        fci_buffer.push_back(0x81);
+        fci_buffer.push_back(static_cast<uint8_t>(pv.size()));
+    } else if (pv.size() <= 0xFFFF) {
+        fci_buffer.push_back(0x82);
+        fci_buffer.push_back(static_cast<uint8_t>(pv.size() >> 8));
+        fci_buffer.push_back(static_cast<uint8_t>(pv.size() & 0xFF));
+    }
+    fci_buffer.insert(fci_buffer.end(), pv.begin(), pv.end());
+    // Generate ephemeral key pair + transaction ID
+    auto [priv, pub] = CommonCryptoUtils::generateEphemeralKey();
+    transcript.reader_eph_priv = priv;
+    transcript.reader_eph_pub  = pub;
+    transcript.reader_eph_x    = CommonCryptoUtils::get_x(transcript.reader_eph_pub);
+    esp_fill_random(transcript.transaction_id.data(), 16);
     LOG(I, "Aliro v1.0 validated, max_cmd=%zu, FCI=%zu bytes",
         max_command_data_size_, transcript.fci_proprietary.size());
     return FailureReason::None;
@@ -113,7 +155,7 @@ FlowState Profile::step(Session& session, FlowState current)
     if (!Auth0Res.ok() || pubkey == nullptr ||
         pubkey->value.size() != kP256UncompressedPublicKeySize) {
       LOG(E, "Auth0 response is malformed or has an invalid endpoint public key");
-      control_flow(session, 0x0, 0x1);
+      control_flow(session, 0x0, 0x0);
       return FlowState::Failed;
     }
     transcript.endpoint_eph_pub = pubkey->value;
@@ -127,6 +169,8 @@ FlowState Profile::step(Session& session, FlowState current)
         std::vector<uint8_t> encryptedMessage = crypt->value;
         auto fastAuth = AliroFastAuth(session).attest(encryptedMessage);
         if (fastAuth && (flowUsed = fastAuth.flow) == kFlowFAST) {
+            session.set_secure_context(std::make_unique<AliroSecureContext>(
+              fastAuth.exchange_sk_reader, fastAuth.exchange_sk_device));
             foundIssuer = fastAuth.issuer;
             foundEndpoint = fastAuth.endpoint;
             LOG(D, "Endpoint %s Authenticated via FAST Flow", redactHex("", foundEndpoint->id.data(), foundEndpoint->id.size()).c_str());
@@ -137,6 +181,9 @@ FlowState Profile::step(Session& session, FlowState current)
     }
     if(foundEndpoint == nullptr){
       auto stdAuth = AliroStdAuth(session).attest();
+        session.set_secure_context(std::make_unique<AliroSecureContext>(
+          std::move(stdAuth.gcm_context),
+          stdAuth.step_up_sk_reader, stdAuth.step_up_sk_device));
       if (stdAuth) {
         foundIssuer = stdAuth.issuer;
         foundEndpoint = stdAuth.endpoint;
@@ -148,23 +195,108 @@ FlowState Profile::step(Session& session, FlowState current)
           LOG_HEX(V, "New Persistent Key", foundEndpoint->persistent_key);
         }
       }
+      auto* ctx = static_cast<AliroSecureContext*>(session.secure_context());
+
+      if (session.config().target_flow == Flow::StepUp) {
+        if (ctx && ctx->step_up_channel()) {
+          uint16_t bitmap = static_cast<uint16_t>(
+              SignalingBitmask::AccessDocumentRetrievable |
+              SignalingBitmask::StepUpSelectRequired);
+          if (stdAuth.signaling_bitmap) {
+            bitmap = (static_cast<uint16_t>((*stdAuth.signaling_bitmap)[0]) << 8)
+                   | (*stdAuth.signaling_bitmap)[1];
+          }
+          auto scopes = session.config().step_up_scopes.value_or(
+              std::map<std::string, bool>{{"id", false}});
+          auto step = AliroStepUp(session, *ctx).run(
+              static_cast<SignalingBitmask>(bitmap), scopes);
+          if (step.success) {
+            flowUsed = kFlowATTESTATION;
+            foundIssuer = step.issuer;
+            if (foundEndpoint == nullptr) {
+              ddk::Endpoint endpoint;
+              endpoint.public_key = step.endpoint_public_key;
+              endpoint.public_key_x.assign(
+                  step.endpoint_public_key.begin() + 1,
+                  step.endpoint_public_key.begin() + 33);
+              auto eId = CommonCryptoUtils::hash_identifier_sha1(
+                  step.endpoint_public_key);
+              endpoint.id.assign(eId.begin(), eId.begin() + 6);
+              foundEndpoint = &*foundIssuer->endpoints.emplace(
+                  foundIssuer->endpoints.end(), std::move(endpoint));
+            }
+            AliroKeySchedule schedule;
+            AliroKeySchedule::SessionInput input{
+                store.reader_identity().public_key_x,
+                transcript.reader_identifier,
+                transcript.reader_eph_x,
+                transcript.endpoint_eph_x,
+                transcript.transaction_id,
+                transcript.protocol_version,
+                transcript.flags,
+                transcript.fci_proprietary,
+                transcript.interface,
+                transcript.auth0_info_suffix,
+            };
+            auto Kpersistent = schedule.derive_persistent(
+                input, stdAuth.derived_key, foundEndpoint->public_key_x);
+            foundEndpoint->persistent_key.assign(Kpersistent.begin(), Kpersistent.end());
+            LOG_HEX(D, "StepUp Provisioned Persistent Key",
+                    foundEndpoint->persistent_key);
+          }
+        }
+      }
+      if (foundEndpoint) {
+        foundEndpoint->aliro.key_slot = stdAuth.key_slot;
+        if (stdAuth.signaling_bitmap) {
+          foundEndpoint->aliro.signaling_bitmask =
+              (static_cast<uint16_t>((*stdAuth.signaling_bitmap)[0]) << 8)
+            | (*stdAuth.signaling_bitmap)[1];
+        }
+        foundEndpoint->aliro.credential_signed_timestamp =
+            stdAuth.credential_signed_timestamp;
+        foundEndpoint->aliro.revocation_signed_timestamp =
+            stdAuth.revocation_signed_timestamp;
+        foundEndpoint->aliro.last_flow = flowUsed;
+      }
       if(flowUsed >= kFlowSTANDARD){
         store.save();
       }
     }
     if (foundIssuer && foundEndpoint && flowUsed != kFlowFailed) {
-      if (flowUsed < kFlowATTESTATION) {
-        control_flow(session, 0x01, 0x01);
+      if (!complete(session, ReaderStatus::StateUnsecure)) {
+        LOG(W, "Completion delivery failed; auth result stands");
       }
       result_ = {foundIssuer->id, foundEndpoint->id, flowUsed};
       return FlowState::Done;
-    } else {
-      control_flow(session, 0x0, 0x1);
-      return FlowState::Failed;
     }
+    if (session.secure_context()) {
+      complete(session, ReaderStatus::PublicKeyNotFound);
+    } else {
+      control_flow(session, 0x00, 0x00);   // no channel — row 9
+    }
+    return FlowState::Failed;
   }
-  control_flow(session, 0x0, 0x1);
+  control_flow(session, 0x0, 0x0);
   return FlowState::Failed;
+}
+
+bool Profile::complete(Session& session, ReaderStatus status)
+{
+    auto* ctx = static_cast<AliroSecureContext*>(session.secure_context());
+    uint16_t s = static_cast<uint16_t>(status);
+    std::vector<uint8_t> payload{0x97, 0x02,
+        static_cast<uint8_t>(s >> 8), static_cast<uint8_t>(s & 0xFF)};
+
+    if (ctx) {
+        auto resp = ctx->exchange(session, payload, /*skip_response_chaining=*/true);
+        if (resp.sw1 == 0x90 || resp.sw1 == 0x61)
+            return true;
+        LOG(W, "Completion EXCHANGE failed (SW %02X%02X) — CONTROL FLOW fallback",
+            resp.sw1, resp.sw2);
+    }
+    control_flow(session, 0x00, 0x00);
+    return false;
 }
 
 AuthOutcome Profile::finalize(Session& session)

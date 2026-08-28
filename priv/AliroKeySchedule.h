@@ -1,7 +1,6 @@
 #pragma once
 #include <array>
 #include <cstdint>
-#include <vector>
 #include "ddk/Span.h"
 
 class AliroKeySchedule {
@@ -35,6 +34,8 @@ public:
     struct VolatileResult {
         std::array<uint8_t,32> exchange_sk_reader;
         std::array<uint8_t,32> exchange_sk_device;
+        std::array<uint8_t,32> step_up_sk_reader;
+        std::array<uint8_t,32> step_up_sk_device;
     };
     VolatileResult derive_volatile(
         const SessionInput& input,

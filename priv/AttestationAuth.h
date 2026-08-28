@@ -19,7 +19,7 @@ private:
   std::vector<unsigned char> envelope2Cmd(std::vector<uint8_t> &salt);
   HKAttestationVerificationResult verify(std::vector<uint8_t>& decryptedCbor);
   static bool extract_device_key(
-      std::span<const uint8_t> payload,          // tag-24-wrapped MSO bytes
+      ddk::span<const uint8_t> payload,          // tag-24-wrapped MSO bytes
       std::vector<uint8_t>& x_out,
       std::vector<uint8_t>& y_out);
 public:

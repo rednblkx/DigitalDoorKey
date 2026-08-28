@@ -5,7 +5,10 @@
 
 namespace ddk {
 
-enum class TransportKind : uint8_t { Nfc, Ble };
+enum class TransportKind : uint8_t {
+    Nfc = 0x5E,   // Aliro interface byte per spec
+    Ble = 0xC3,   // Aliro interface byte per spec
+};
 
 struct ApduCommand {
     uint8_t cla = 0x80;

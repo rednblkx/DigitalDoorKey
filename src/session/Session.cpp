@@ -36,7 +36,6 @@ Session::Session(std::shared_ptr<ApduChannel> apdu,
         identity.sub_identifier.begin(),
         identity.sub_identifier.end());
 
-    transcript_.flags = {0x01, 0x01};
     LOG(I, "Session initialized");
 }
 
