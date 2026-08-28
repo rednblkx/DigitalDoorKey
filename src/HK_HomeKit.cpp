@@ -41,8 +41,12 @@ std::vector<uint8_t> HK_HomeKit::processResult() {
           getResSub.add(kReader_Res_Key_Identifier, store.reader_identity().group_identifier);
           std::vector<uint8_t> subTlv = getResSub.get();
           LOG(D, "%s", redactHex("SUB-TLV", subTlv).c_str());
+          TLV8 getResSubStatus;
+          getResSubStatus.add(kReader_Res_Status, 0);
+          std::vector<uint8_t> getSubTlvStatus = getResSubStatus.get();
           TLV8 getResTlv;
           getResTlv.add(kReader_Res_Reader_Key_Response, subTlv);
+          getResTlv.add(kReader_Res_Reader_Key_Response, getSubTlvStatus);
           std::vector<uint8_t> tlvRes = getResTlv.get();
           LOG(D, "%s", redactHex("TLV", tlvRes).c_str());
           return tlvRes;
@@ -346,7 +350,7 @@ int HK_HomeKit::set_reader_key(const std::vector<uint8_t>& buf) {
   std::vector<uint8_t> x_coordinate = CommonCryptoUtils::get_x(pubKey);
   LOG(D, "%s", redactHex("X coordinate", x_coordinate).c_str());
 
-  ddk::ReaderIdentity& identity = store.reader_identity();
+  ddk::ReaderIdentity identity;
   identity.private_key     = readerKey;
   identity.public_key      = std::move(pubKey);
   identity.public_key_x    = std::move(x_coordinate);
@@ -355,6 +359,7 @@ int HK_HomeKit::set_reader_key(const std::vector<uint8_t>& buf) {
   std::vector<uint8_t> gid_hash = CommonCryptoUtils::hash_identifier_sha256(readerKey);
   identity.group_identifier.assign(
       gid_hash.begin(), gid_hash.begin() + std::min<size_t>(8, gid_hash.size()));
+  store.provision_identity(identity);
 
   LOG(D, "identity sizes: sk=%zu pk=%zu pkx=%zu gid=%zu sub=%zu cert=%d",
       identity.private_key.size(),

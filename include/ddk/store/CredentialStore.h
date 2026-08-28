@@ -12,7 +12,7 @@ class CredentialStore {
 public:
     virtual ~CredentialStore() = default;
     virtual const ReaderIdentity& reader_identity() const = 0;
-    virtual ReaderIdentity& reader_identity() = 0;
+    virtual void provision_identity(const ReaderIdentity&) = 0;
     virtual span<Issuer> issuers() = 0;
     virtual void save() = 0;
 };
