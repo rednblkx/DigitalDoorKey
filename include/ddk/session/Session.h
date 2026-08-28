@@ -30,7 +30,6 @@ struct Transcript {
     // Built from store — owned by Transcript (gid || sub)
     std::vector<uint8_t> reader_identifier;
 
-    // Generated after FAST fails
     SecureBuffer<32> reader_eph_priv;
     SecureBuffer<65> reader_eph_pub;
     SecureBuffer<32> reader_eph_x;

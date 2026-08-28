@@ -17,7 +17,7 @@ namespace ddk::homekey {
 
 constexpr const char* TAG = "HKProfile";
 
-Profile::Profile(CredentialStore& store) : store_(store) {}
+Profile::Profile() {}
 
 FailureReason Profile::validate_select(
     Session& session, ddk::span<const uint8_t> select_response)
@@ -56,18 +56,6 @@ FailureReason Profile::validate_select(
     transcript.protocol_version = {0x02, 0x00};
     transcript.flags[0] = (session.config().target_flow == Flow::Fast) ? 0x01 : 0x00;
     transcript.flags[1] = session.config().authentication_policy;
-    auto startTime = std::chrono::high_resolution_clock::now();;
-    auto [priv, pub] = CommonCryptoUtils::generateEphemeralKey();
-    transcript.reader_eph_priv = priv;
-    transcript.reader_eph_pub  = pub;
-    transcript.reader_eph_x     = CommonCryptoUtils::get_x(transcript.reader_eph_pub);
-
-#if defined(CONFIG_IDF_CMAKE)
-    esp_fill_random(transcript.transaction_id.data(), 16);
-#else
-    randombytes(transcript.transaction_id.data(), 16);
-#endif
-    LOG(I, "Ephemeral keys generated in %lli ms", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - startTime).count());
     return FailureReason::None;
 }
 
@@ -243,7 +231,7 @@ AuthOutcome Profile::finalize(Session& session)
         outcome.state = FlowState::Done;
 
         // Look up issuer + endpoint by ID in the store
-        for (auto& issuer : store_.issuers()) {
+        for (auto& issuer : session.store().issuers()) {
             if (issuer.id == result_.issuer_id) {
                 outcome.issuer = &issuer;
                 for (auto& endpoint : issuer.endpoints) {

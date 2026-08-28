@@ -1,7 +1,9 @@
 #include "ddk/session/Session.h"
+#include "CommonCryptoUtils.h"
 #include "ddk/store/CredentialStore.h"
 #include "ddk/store/ReaderIdentity.h"
 #include "DDKLogging.h"
+#include <chrono>
 
 #if defined(CONFIG_IDF_CMAKE)
 #include <esp_random.h>
@@ -36,7 +38,18 @@ Session::Session(std::shared_ptr<ApduChannel> apdu,
         identity.sub_identifier.begin(),
         identity.sub_identifier.end());
 
-    LOG(I, "Session initialized");
+    auto startTime = std::chrono::high_resolution_clock::now();;
+    auto [priv, pub] = CommonCryptoUtils::generateEphemeralKey();
+    transcript_.reader_eph_priv = priv;
+    transcript_.reader_eph_pub  = pub;
+    transcript_.reader_eph_x     = CommonCryptoUtils::get_x(transcript_.reader_eph_pub);
+
+#if defined(CONFIG_IDF_CMAKE)
+    esp_fill_random(transcript_.transaction_id.data(), 16);
+#else
+    randombytes(transcript_.transaction_id.data(), 16);
+#endif
+    LOG(I, "Session initialized in %lli ms", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - startTime).count());
 }
 
 }  // namespace ddk

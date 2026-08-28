@@ -9,7 +9,6 @@
 #include "ddk/session/AuthOutcome.h"
 #include "ddk/store/CredentialStore.h"
 #include "DDKLogging.h"
-#include "esp_random.h"
 #include "simple_tlv.hpp"
 #include <cstring>
 #include "AliroSecureContext.h"
@@ -19,7 +18,7 @@ namespace ddk::aliro {
 
 constexpr const char* TAG = "AliroProfile";
 
-Profile::Profile(CredentialStore& store) : store_(store) {}
+Profile::Profile() {}
 
 FailureReason Profile::validate_select(
     Session& session, ddk::span<const uint8_t> select_response)
@@ -102,12 +101,6 @@ FailureReason Profile::validate_select(
         fci_buffer.push_back(static_cast<uint8_t>(pv.size() & 0xFF));
     }
     fci_buffer.insert(fci_buffer.end(), pv.begin(), pv.end());
-    // Generate ephemeral key pair + transaction ID
-    auto [priv, pub] = CommonCryptoUtils::generateEphemeralKey();
-    transcript.reader_eph_priv = priv;
-    transcript.reader_eph_pub  = pub;
-    transcript.reader_eph_x    = CommonCryptoUtils::get_x(transcript.reader_eph_pub);
-    esp_fill_random(transcript.transaction_id.data(), 16);
     LOG(I, "Aliro v1.0 validated, max_cmd=%zu, FCI=%zu bytes",
         max_command_data_size_, transcript.fci_proprietary.size());
     return FailureReason::None;
@@ -307,7 +300,7 @@ AuthOutcome Profile::finalize(Session& session)
         outcome.state = FlowState::Done;
 
         // Look up issuer + endpoint by ID in the store
-        for (auto& issuer : store_.issuers()) {
+        for (auto& issuer : session.store().issuers()) {
             if (issuer.id == result_.issuer_id) {
                 outcome.issuer = &issuer;
                 for (auto& endpoint : issuer.endpoints) {

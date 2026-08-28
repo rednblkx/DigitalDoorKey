@@ -1,12 +1,11 @@
 #include "aliro/Profile.h"
-#include "ddk/store/CredentialStore.h"
 #include <memory>
 
 namespace ddk::aliro {
 
-std::unique_ptr<ddk::Profile> make_profile(CredentialStore& store)
+std::unique_ptr<ddk::Profile> make_profile()
 {
-    return std::make_unique<Profile>(store);
+    return std::make_unique<Profile>();
 }
 
 }  // namespace ddk::aliro

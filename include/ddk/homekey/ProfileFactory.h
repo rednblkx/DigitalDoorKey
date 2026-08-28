@@ -8,7 +8,7 @@ namespace ddk{
 
   namespace homekey {
 
-  std::unique_ptr<ddk::Profile> make_profile(CredentialStore& store);
+  std::unique_ptr<ddk::Profile> make_profile();
 
   }
 }  // namespace ddk::homekey
