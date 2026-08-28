@@ -1,4 +1,4 @@
-#include "HomeKeyKeySchedule.h"
+#include "homekey/HomeKeyKeySchedule.h"
 #include "DDKLogging.h"
 #include "ddk/transport/ApduChannel.h"
 #include <cstdint>

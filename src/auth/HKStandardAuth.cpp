@@ -1,5 +1,6 @@
-#include "HKStandardAuth.h"
-#include "HomeKeyKeySchedule.h"
+#include "homekey/HKStandardAuth.h"
+#include "homekey/HomeKeyKeySchedule.h"
+#include "ddk/store/CredentialStore.h"
 #include "ddk/store/ReaderIdentity.h"
 #include "CommonCryptoUtils.h"
 #include "ScbSecureChannel.h"
@@ -171,7 +172,7 @@ HomeKeyStdAuthResult HomeKeyStdAuth::attest()
     if (!foundEndpoint) {
         LOG(W, "STANDARD: endpoint not found — will attempt attestation");
         HomeKeyStdAuthResult result;
-        result.flow = kFlowNext;
+        result.flow = ddk::kFlowNext;
         result.scb_context = std::move(scb);
         result.persistent_key = persistentKey;
         return result;
@@ -205,7 +206,7 @@ HomeKeyStdAuthResult HomeKeyStdAuth::attest()
     if (ret != 0) {
         LOG(W, "STANDARD: signature verification failed: %d", ret);
         HomeKeyStdAuthResult result;
-        result.flow = kFlowNext;
+        result.flow = ddk::kFlowNext;
         result.scb_context = std::move(scb);
         result.persistent_key = persistentKey;
         return result;
@@ -218,6 +219,6 @@ HomeKeyStdAuthResult HomeKeyStdAuth::attest()
     result.endpoint = foundEndpoint;
     result.scb_context = std::move(scb);
     result.persistent_key = persistentKey;
-    result.flow = kFlowSTANDARD;
+    result.flow = ddk::kFlowSTANDARD;
     return result;
 }

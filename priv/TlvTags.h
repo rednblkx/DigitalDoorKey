@@ -1,10 +1,5 @@
 #pragma once
 
-typedef enum {
-  kAliro = 0x00,
-  kHomeKey = 0x01
-} DigitalKeyType;
-
 typedef enum
 {
   kEndpoint_Public_Key = 0x86,
@@ -30,12 +25,3 @@ typedef enum
   kTransactionSTANDARD = 0x0,
   kTransactionFAST = 0x01
 } KeyTransactionFlags;
-
-typedef enum
-{
-  kFlowFAST = 0x00,
-  kFlowSTANDARD = 0x01,
-  kFlowATTESTATION = 0x02,
-  kFlowNext = 0xFF,
-  kFlowFailed = -1
-} KeyFlow;

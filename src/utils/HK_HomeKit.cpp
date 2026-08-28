@@ -1,6 +1,6 @@
 #include <HK_HomeKit.h>
 #include "CommonCryptoUtils.h"
-#include "ddk/homekey/HapTags.h"
+#include "homekey/HapTags.h"
 #include "TLV8.hpp"
 #include "DDKLogging.h"
 #include "ddk/store/ReaderIdentity.h"

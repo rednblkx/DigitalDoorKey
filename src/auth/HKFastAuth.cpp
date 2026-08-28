@@ -1,7 +1,8 @@
-#include "HKFastAuth.h"
-#include "HomeKeyKeySchedule.h"
+#include "homekey/HKFastAuth.h"
+#include "homekey/HomeKeyKeySchedule.h"
 #include "CommonCryptoUtils.h"
 #include "DDKLogging.h"
+#include "ddk/store/CredentialStore.h"
 #include "ddk/store/ReaderIdentity.h"
 
 constexpr const char* TAG = "HKFastAuth";
@@ -13,7 +14,7 @@ FastAuthResult HomeKeyFastAuth::attest(const std::vector<uint8_t>& cryptogram)
 
     if (cryptogram.size() != 16) {
         LOG(W, "Invalid HomeKey cryptogram length: %zu", cryptogram.size());
-        return {nullptr, nullptr, kFlowNext};
+        return {nullptr, nullptr, ddk::kFlowNext};
     }
 
     HomeKeyKeySchedule schedule;
@@ -34,9 +35,9 @@ FastAuthResult HomeKeyFastAuth::attest(const std::vector<uint8_t>& cryptogram)
                 input, endpoint.public_key_x, endpoint.persistent_key);
             if (CommonCryptoUtils::constant_time_compare(
                     okm.data(), cryptogram.data(), 16)) {
-                return {&issuer, &endpoint, kFlowFAST};
+                return {&issuer, &endpoint, ddk::kFlowFAST};
             }
         }
     }
-    return {nullptr, nullptr, kFlowNext};
+    return {nullptr, nullptr, ddk::kFlowNext};
 }

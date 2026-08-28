@@ -1,7 +1,7 @@
 #pragma once
 #include "ddk/session/Session.h"
-#include "AuthResults.hpp"
-#include "ScbSecureChannel.h"
+#include "../AuthResults.hpp"
+#include "../ScbSecureChannel.h"
 #include <tuple>
 #include <vector>
 

@@ -1,4 +1,4 @@
-#include "HKSecureContext.h"
+#include "homekey/HKSecureContext.h"
 #include "DDKLogging.h"
 
 constexpr const char* TAG = "HKSecureContext";

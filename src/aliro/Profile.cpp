@@ -1,18 +1,19 @@
 #include "aliro/Profile.h"
-#include "AliroKeySchedule.h"
-#include "AliroStdAuth.h"
-#include "AliroStepUp.h"
+#include "aliro/AliroKeySchedule.h"
+#include "aliro/AliroStdAuth.h"
+#include "aliro/AliroStepUp.h"
 #include "BerTlv.h"
 #include "CommonCryptoUtils.h"
-#include "AliroFastAuth.h"
+#include "aliro/AliroFastAuth.h"
 #include "TLV8.hpp"
 #include "ddk/session/AuthOutcome.h"
 #include "ddk/store/CredentialStore.h"
 #include "DDKLogging.h"
 #include "simple_tlv.hpp"
 #include <cstring>
-#include "AliroSecureContext.h"
+#include "aliro/AliroSecureContext.h"
 #include "ddk/store/ReaderIdentity.h"
+#include "TlvTags.h"
 
 namespace ddk::aliro {
 
@@ -155,13 +156,13 @@ FlowState Profile::step(Session& session, FlowState current)
     transcript.endpoint_eph_x = CommonCryptoUtils::get_x(transcript.endpoint_eph_pub);
     ddk::Issuer *foundIssuer = nullptr;
     ddk::Endpoint *foundEndpoint = nullptr;
-    KeyFlow flowUsed = kFlowFailed;
+    ddk::KeyFlow flowUsed = ddk::kFlowFailed;
     if (session.config().target_flow == Flow::Fast) {
       const tlv_t *crypt = Auth0Res.expect(kAuth0_Cryptogram);
       if (crypt != nullptr) {
         std::vector<uint8_t> encryptedMessage = crypt->value;
         auto fastAuth = AliroFastAuth(session).attest(encryptedMessage);
-        if (fastAuth && (flowUsed = fastAuth.flow) == kFlowFAST) {
+        if (fastAuth && (flowUsed = fastAuth.flow) == ddk::kFlowFAST) {
             session.set_secure_context(std::make_unique<AliroSecureContext>(
               fastAuth.exchange_sk_reader, fastAuth.exchange_sk_device));
             foundIssuer = fastAuth.issuer;
@@ -180,7 +181,7 @@ FlowState Profile::step(Session& session, FlowState current)
       if (stdAuth) {
         foundIssuer = stdAuth.issuer;
         foundEndpoint = stdAuth.endpoint;
-        if ((flowUsed = stdAuth.flow) == kFlowSTANDARD)
+        if ((flowUsed = stdAuth.flow) == ddk::kFlowSTANDARD)
         {
           LOG(D, "Endpoint %s Authenticated via STANDARD Flow", redactHex("", foundEndpoint->id.data(), foundEndpoint->id.size()).c_str());
           foundEndpoint->persistent_key.clear();
@@ -204,7 +205,7 @@ FlowState Profile::step(Session& session, FlowState current)
           auto step = AliroStepUp(session, *ctx).run(
               static_cast<SignalingBitmask>(bitmap), scopes);
           if (step.success) {
-            flowUsed = kFlowATTESTATION;
+            flowUsed = ddk::kFlowATTESTATION;
             foundIssuer = step.issuer;
             if (foundEndpoint == nullptr) {
               ddk::Endpoint endpoint;
@@ -252,11 +253,11 @@ FlowState Profile::step(Session& session, FlowState current)
             stdAuth.revocation_signed_timestamp;
         foundEndpoint->aliro.last_flow = flowUsed;
       }
-      if(flowUsed >= kFlowSTANDARD){
+      if(flowUsed >= ddk::kFlowSTANDARD){
         store.save();
       }
     }
-    if (foundIssuer && foundEndpoint && flowUsed != kFlowFailed) {
+    if (foundIssuer && foundEndpoint && flowUsed != ddk::kFlowFailed) {
       if (!complete(session, ReaderStatus::StateUnsecure)) {
         LOG(W, "Completion delivery failed; auth result stands");
       }
@@ -296,7 +297,7 @@ AuthOutcome Profile::finalize(Session& session)
 {
     AuthOutcome outcome;
 
-    if (result_.flow != kFlowFailed) {
+    if (result_.flow != ddk::kFlowFailed) {
         outcome.state = FlowState::Done;
 
         // Look up issuer + endpoint by ID in the store

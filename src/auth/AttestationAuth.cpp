@@ -1,4 +1,4 @@
-#include "AttestationAuth.h"
+#include "homekey/AttestationAuth.h"
 #include "AuthResults.hpp"
 #include "esp_log_buffer.h"
 #include "esp_log_level.h"
@@ -23,6 +23,8 @@
 #include <vector>
 #include "ddk/transport/ApduChannel.h"
 #include "CoseSign1.h"
+#include "TlvTags.h"
+#include "ddk/store/CredentialStore.h"
 
 HKAttestationAuth::HKAttestationAuth(
     ddk::Session& session, ScbSecureChannel& scb)
@@ -91,7 +93,7 @@ std::vector<unsigned char> HKAttestationAuth::attestation_salt(std::vector<unsig
 
 std::tuple<std::vector<uint8_t>, std::vector<uint8_t>> HKAttestationAuth::envelope1Cmd()
 {
-  std::vector<uint8_t> ctrlFlow = {0x80, 0x3c, 0x40, 0xa0};
+  std::vector<uint8_t> ctrlFlow = {0x80, 0x3c, kCmdFlowAttestation, 0xa0};
   auto ctrlFlowRes = session_.apdu().transceive(ctrlFlow);
   if (!ctrlFlowRes.ok()) {
     return std::make_tuple(std::vector<uint8_t>(), std::vector<uint8_t>());
@@ -413,7 +415,7 @@ HKAttestationResult HKAttestationAuth::attest()
           if (verify_result) {
             result.device_pub_key = verify_result.device_pub_key;
             result.issuer = verify_result.issuer;
-            result.flow = kFlowATTESTATION;
+            result.flow = ddk::kFlowATTESTATION;
             return result;
           }
         }

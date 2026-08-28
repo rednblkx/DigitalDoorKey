@@ -2,11 +2,8 @@
 #include <memory>
 #include <array>
 #include <optional>
-#include "DDKReaderData.h"
 #include "GcmSecureChannel.h"
 #include "ScbSecureChannel.h"
-#include "ddk/aliro/SignalingBitmask.h"
-#include "ddk/store/CredentialStore.h"
 #include "ddk/store/Issuer.h"
 
 /**
@@ -15,7 +12,7 @@
 struct AuthContextResult {
     std::vector<uint8_t> issuer_id;
     std::vector<uint8_t> endpoint_id;
-    KeyFlow flow = kFlowFailed;
+    ddk::KeyFlow flow = ddk::kFlowFailed;
 };
 
 /**
@@ -31,10 +28,10 @@ struct HKAttestationVerificationResult {
 struct FastAuthResult {
     ddk::Issuer* issuer = nullptr;
     ddk::Endpoint* endpoint = nullptr;
-    KeyFlow flow = kFlowFailed;
+    ddk::KeyFlow flow = ddk::kFlowFailed;
     std::array<uint8_t,32> exchange_sk_reader{};
     std::array<uint8_t,32> exchange_sk_device{};
-    explicit operator bool() const { return flow == kFlowFAST; }
+    explicit operator bool() const { return flow == ddk::kFlowFAST; }
 };
 
 struct HomeKeyStdAuthResult {
@@ -42,8 +39,8 @@ struct HomeKeyStdAuthResult {
     ddk::Endpoint* endpoint = nullptr;
     std::unique_ptr<ScbSecureChannel> scb_context;
     std::array<uint8_t,32> persistent_key{};
-    KeyFlow flow = kFlowFailed;
-    explicit operator bool() const { return flow == kFlowSTANDARD && issuer && endpoint; }
+    ddk::KeyFlow flow = ddk::kFlowFailed;
+    explicit operator bool() const { return flow == ddk::kFlowSTANDARD && issuer && endpoint; }
 };
 
 struct AliroStdAuthResult {
@@ -58,13 +55,13 @@ struct AliroStdAuthResult {
     std::optional<std::array<uint8_t,2>> signaling_bitmap{};
     std::vector<uint8_t> credential_signed_timestamp;
     std::vector<uint8_t> revocation_signed_timestamp;
-    KeyFlow flow = kFlowFailed;
-    explicit operator bool() const { return flow == kFlowSTANDARD && issuer && endpoint; }
+    ddk::KeyFlow flow = ddk::kFlowFailed;
+    explicit operator bool() const { return flow == ddk::kFlowSTANDARD && issuer && endpoint; }
 };
 
 struct HKAttestationResult {
     ddk::Issuer* issuer = nullptr;
     std::array<uint8_t,65> device_pub_key{};
-    KeyFlow flow = kFlowFailed;
-    explicit operator bool() const { return flow == kFlowATTESTATION; }
+    ddk::KeyFlow flow = ddk::kFlowFailed;
+    explicit operator bool() const { return flow == ddk::kFlowATTESTATION; }
 };

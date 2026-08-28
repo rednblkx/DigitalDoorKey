@@ -1,5 +1,5 @@
 #pragma once
-#include "ScbSecureChannel.h"
+#include "../ScbSecureChannel.h"
 #include "ddk/session/Session.h"
 #include "ddk/transport/ApduChannel.h"
 #include <memory>

@@ -1,5 +1,5 @@
 #pragma once
-#include "GcmSecureChannel.h"
+#include "../GcmSecureChannel.h"
 #include "ddk/session/SecureContext.h"
 #include <array>
 #include <memory>

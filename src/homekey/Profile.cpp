@@ -1,8 +1,8 @@
 #include "homekey/Profile.h"
 #include "CommonCryptoUtils.h"
-#include "DDKReaderData.h"
-#include "HKFastAuth.h"
-#include "HKStandardAuth.h"
+#include "TlvTags.h"
+#include "homekey/HKFastAuth.h"
+#include "homekey/HKStandardAuth.h"
 #include "TLV8.hpp"
 #include "ddk/session/AuthOutcome.h"
 #include "ddk/session/Flow.h"
@@ -10,7 +10,7 @@
 #include "DDKLogging.h"
 #include "esp_random.h"
 #include "simple_tlv.hpp"
-#include "AttestationAuth.h"
+#include "homekey/AttestationAuth.h"
 #include <chrono>
 
 namespace ddk::homekey {
@@ -54,7 +54,7 @@ FailureReason Profile::validate_select(
 
     auto& transcript = session.transcript();
     transcript.protocol_version = {0x02, 0x00};
-    transcript.flags[0] = (session.config().target_flow == Flow::Fast) ? 0x01 : 0x00;
+    transcript.flags[0] = (session.config().target_flow == Flow::Fast) ? kTransactionFAST : kTransactionSTANDARD;
     transcript.flags[1] = session.config().authentication_policy;
     return FailureReason::None;
 }
@@ -115,7 +115,7 @@ FlowState Profile::step(Session& session, FlowState current)
 
     ddk::Issuer* foundIssuer = nullptr;
     ddk::Endpoint* foundEndpoint = nullptr;
-    KeyFlow flowUsed = kFlowFailed;
+    ddk::KeyFlow flowUsed = ddk::kFlowFailed;
     std::array<uint8_t,32> persistentKey{};
 
     auto target = session.config().target_flow;
@@ -126,7 +126,7 @@ FlowState Profile::step(Session& session, FlowState current)
         const tlv_t* crypt = Auth0Res.expect(kAuth0_Cryptogram);
         if (crypt != nullptr) {
             auto fast = HomeKeyFastAuth(session).attest(crypt->value);
-            if (fast && (flowUsed = fast.flow) == kFlowFAST) {
+            if (fast && (flowUsed = fast.flow) == ddk::kFlowFAST) {
                 foundIssuer = fast.issuer;
                 foundEndpoint = fast.endpoint;
                 LOG(D, "Endpoint %s Authenticated via FAST Flow",
@@ -144,14 +144,14 @@ FlowState Profile::step(Session& session, FlowState current)
     if (foundEndpoint == nullptr) {
         auto std = HomeKeyStdAuth(session).attest();
 
-        if (std.flow == kFlowSTANDARD && std.issuer && std.endpoint) {
+        if (std.flow == ddk::kFlowSTANDARD && std.issuer && std.endpoint) {
             foundIssuer = std.issuer;
             foundEndpoint = std.endpoint;
-            flowUsed = kFlowSTANDARD;
+            flowUsed = ddk::kFlowSTANDARD;
             persistentKey = std.persistent_key;
             LOG(D, "Endpoint %s Authenticated via STANDARD Flow",
                 redactHex("", foundEndpoint->id.data(), foundEndpoint->id.size()).c_str());
-        } else if (std.flow == kFlowFailed || !std.scb_context) {
+        } else if (std.flow == ddk::kFlowFailed || !std.scb_context) {
             LOG(E, "STANDARD failed with no secure channel — cannot continue");
             control_flow(session, kCmdFlowFailed, 0x0);
             return FlowState::Failed;
@@ -168,9 +168,9 @@ FlowState Profile::step(Session& session, FlowState current)
             session.set_secure_context(std::move(ctx));
 
             // --- Rung 3: StepUp ---
-            if (std.flow == kFlowNext || target == Flow::StepUp) {
+            if (std.flow == ddk::kFlowNext || target == Flow::StepUp) {
                 auto att = HKAttestationAuth(session, ctx_raw->channel()).attest();
-                if (att && (flowUsed = att.flow) == kFlowATTESTATION) {
+                if (att && (flowUsed = att.flow) == ddk::kFlowATTESTATION) {
                     foundIssuer = att.issuer;
                     if (foundEndpoint == nullptr) {
                         ddk::Endpoint endpoint;
@@ -195,7 +195,7 @@ FlowState Profile::step(Session& session, FlowState current)
         }
     }
 
-    if (foundIssuer == nullptr || foundEndpoint == nullptr || flowUsed == kFlowFailed) {
+    if (foundIssuer == nullptr || foundEndpoint == nullptr || flowUsed == ddk::kFlowFailed) {
         control_flow(session, kCmdFlowFailed, 0x0);
         return FlowState::Failed;
     }
@@ -208,11 +208,11 @@ FlowState Profile::step(Session& session, FlowState current)
 
     // CONTROL FLOW success (FAST and STANDARD rungs; ATTESTATION already
     // sent its own 0x40 inside the attestation flow itself)
-    if (flowUsed < kFlowATTESTATION) {
+    if (flowUsed < ddk::kFlowATTESTATION) {
         auto cf = control_flow(session, kCmdFlowSuccess, 0x0);
         if (!cf.ok()) {
             LOG(E, "Control Flow response not 0x90");
-            result_.flow = kFlowFailed;
+            result_.flow = ddk::kFlowFailed;
             return FlowState::Failed;
         }
     }
@@ -227,7 +227,7 @@ AuthOutcome Profile::finalize(Session& session)
 {
     AuthOutcome outcome;
 
-    if (result_.flow != kFlowFailed) {
+    if (result_.flow != ddk::kFlowFailed) {
         outcome.state = FlowState::Done;
 
         // Look up issuer + endpoint by ID in the store

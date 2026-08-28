@@ -2,7 +2,8 @@
 #include <cstdint>
 #include <optional>
 #include <vector>
-#include "DDKReaderData.h"
+#include "ddk/session/Flow.h"
+
 namespace ddk {
 
 enum class KeyType : uint8_t { Secp256r1 = 2 };
@@ -13,12 +14,12 @@ struct AliroEndpointData {
     std::optional<uint16_t> signaling_bitmask;         // AUTH1 tag 0x5E
     std::vector<uint8_t> credential_signed_timestamp;  // AUTH1 tag 0x91 (20B tdate)
     std::vector<uint8_t> revocation_signed_timestamp;  // AUTH1 tag 0x92 (20B tdate)
-    KeyFlow last_flow = kFlowNext;                     // last flow that authenticated
+    ddk::KeyFlow last_flow = ddk::kFlowNext;                     // last flow that authenticated
 
     bool empty() const {
         return key_slot.empty() && !signaling_bitmask &&
                credential_signed_timestamp.empty() &&
-               revocation_signed_timestamp.empty() && last_flow == kFlowNext;
+               revocation_signed_timestamp.empty() && last_flow == ddk::kFlowNext;
     }
 };
 

@@ -1,5 +1,6 @@
-#include "AliroStdAuth.h"
-#include "AliroKeySchedule.h"
+#include "aliro/AliroStdAuth.h"
+#include "aliro/AliroKeySchedule.h"
+#include "ddk/store/CredentialStore.h"
 #include "ddk/store/ReaderIdentity.h"
 #include "CommonCryptoUtils.h"
 #include "GcmSecureChannel.h"
@@ -224,7 +225,7 @@ AliroStdAuthResult AliroStdAuth::attest()
 
     if (!foundEndpoint) {
         LOG(W, "STANDARD: endpoint not found");
-        result.flow = kFlowFailed;
+        result.flow = ddk::kFlowFailed;
         return result;
     }
 
@@ -253,7 +254,7 @@ AliroStdAuthResult AliroStdAuth::attest()
     ret = mbedtls_ecdsa_verify(grp, hash, 32, Q, r, s);
     if (ret != 0) {
         LOG(W, "STANDARD: signature verification failed: %d", ret);
-        result.flow = kFlowFailed;
+        result.flow = ddk::kFlowFailed;
         return result;
     }
 
@@ -269,6 +270,6 @@ AliroStdAuthResult AliroStdAuth::attest()
     result.issuer = foundIssuer;
     result.endpoint = foundEndpoint;
     result.persistent_key = persistentKey;
-    result.flow = kFlowSTANDARD;
+    result.flow = ddk::kFlowSTANDARD;
     return result;
 }

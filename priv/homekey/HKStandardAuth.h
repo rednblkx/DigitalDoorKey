@@ -1,6 +1,6 @@
 #pragma once
 #include "ddk/session/Session.h"
-#include "AuthResults.hpp"
+#include "../AuthResults.hpp"
 
 class HomeKeyStdAuth {
 public:
