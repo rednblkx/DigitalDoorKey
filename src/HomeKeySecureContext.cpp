@@ -7,8 +7,12 @@ HKSecureContext::HKSecureContext(std::unique_ptr<ScbSecureChannel> scb)
     : scb_(std::move(scb)) {}
 
 ddk::ApduResponse HKSecureContext::exchange(
-    ddk::Session& session, ddk::span<const uint8_t> tlvs)
+    ddk::Session& session, ddk::span<const uint8_t> tlvs,
+    bool skip_response_chaining)
 {
+    // SCB EXCHANGE responses are single-frame (RMAC-tagged); response
+    // chaining is not used — the flag exists for base-interface parity.
+    (void)skip_response_chaining;
     auto [encrypted, rmac] = scb_->encrypt_command(tlvs);
 
     if (encrypted.empty() && !tlvs.empty()) {

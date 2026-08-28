@@ -10,7 +10,7 @@ public:
 
   virtual FailureReason
   validate_select(Session &session,
-                  std::span<const uint8_t> select_response) = 0;
+                  ddk::span<const uint8_t> select_response) = 0;
 
   virtual FlowState step(Session &session, FlowState current) = 0;
 

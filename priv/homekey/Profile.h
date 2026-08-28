@@ -11,7 +11,7 @@ public:
     explicit Profile(CredentialStore& store);
 
     ddk::FailureReason validate_select(
-        Session& session, std::span<const uint8_t> fci) override;
+        Session& session, ddk::span<const uint8_t> fci) override;
 
     FlowState step(Session& session, FlowState current) override;
 

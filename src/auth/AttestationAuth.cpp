@@ -220,7 +220,7 @@ std::vector<unsigned char> HKAttestationAuth::envelope2Cmd(std::vector<uint8_t> 
 }
 
 bool HKAttestationAuth::extract_device_key(
-    std::span<const uint8_t> payload,
+    ddk::span<const uint8_t> payload,
     std::vector<uint8_t>& x_out,
     std::vector<uint8_t>& y_out)
 {

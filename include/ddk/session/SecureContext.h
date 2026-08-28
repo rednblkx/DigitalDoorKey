@@ -17,7 +17,7 @@ public:
     // send as EXCHANGE APDU (INS 0xC9), decrypt the response.
     // Returns response with DECRYPTED data + status word.
     virtual ApduResponse exchange(Session& session,
-                                  span<const uint8_t> tlvs) = 0;
+                                  span<const uint8_t> tlvs, bool skip_response_chaining = false) = 0;
 };
 
 }  // namespace ddk

@@ -1,5 +1,7 @@
 #include "HomeKeyKeySchedule.h"
 #include "DDKLogging.h"
+#include "ddk/transport/ApduChannel.h"
+#include <cstdint>
 #include <cstring>
 #include <mbedtls/hkdf.h>
 
@@ -26,7 +28,7 @@ std::vector<uint8_t> build_fast_salt(
                 (const uint8_t*)kVolatileFast + strlen(kVolatileFast));
     salt.insert(salt.end(), input.reader_identifier.begin(), input.reader_identifier.end());
     salt.insert(salt.end(), endpoint_pk_x.begin(), endpoint_pk_x.end());
-    salt.push_back(0x5E);
+    salt.push_back((uint8_t)ddk::TransportKind::Nfc);
     salt.insert(salt.end(), kSupportedVersions.begin(), kSupportedVersions.end());
     salt.push_back(0x5C);
     salt.push_back(input.version.size());
@@ -51,7 +53,7 @@ std::vector<uint8_t> build_standard_salt(
     salt.insert(salt.end(), input.reader_eph_x.begin(), input.reader_eph_x.end());
     salt.insert(salt.end(), input.endpoint_eph_x.begin(), input.endpoint_eph_x.end());
     salt.insert(salt.end(), input.transaction_id.begin(), input.transaction_id.end());
-    salt.push_back(0x5E);
+    salt.push_back((uint8_t)ddk::TransportKind::Nfc);
     salt.push_back(input.flags[0]);
     salt.push_back(input.flags[1]);
     salt.insert(salt.end(), context.begin(), context.end());

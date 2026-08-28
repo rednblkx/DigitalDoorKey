@@ -42,7 +42,7 @@ struct Transcript {
     // Per-session
     SecureBuffer<16> transaction_id;
     std::array<uint8_t,2> protocol_version{};
-    std::array<uint8_t,2> flags{0x01, 0x01};
+    std::array<uint8_t,2> flags;
 
     // From SELECT response
     std::vector<uint8_t> fci_proprietary;

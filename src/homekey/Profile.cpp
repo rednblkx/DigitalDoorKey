@@ -1,5 +1,4 @@
 #include "homekey/Profile.h"
-#include "AuthParams.h"
 #include "CommonCryptoUtils.h"
 #include "DDKReaderData.h"
 #include "HKFastAuth.h"
@@ -21,7 +20,7 @@ constexpr const char* TAG = "HKProfile";
 Profile::Profile(CredentialStore& store) : store_(store) {}
 
 FailureReason Profile::validate_select(
-    Session& session, std::span<const uint8_t> select_response)
+    Session& session, ddk::span<const uint8_t> select_response)
 {
     size_t len = select_response.size();
     if (len >= 2 &&
@@ -53,10 +52,11 @@ FailureReason Profile::validate_select(
         return FailureReason::VersionMismatch;
     }
 
-    session.transcript().protocol_version = {0x02, 0x00};
-
-    auto startTime = std::chrono::high_resolution_clock::now();;
     auto& transcript = session.transcript();
+    transcript.protocol_version = {0x02, 0x00};
+    transcript.flags[0] = (session.config().target_flow == Flow::Fast) ? 0x01 : 0x00;
+    transcript.flags[1] = session.config().authentication_policy;
+    auto startTime = std::chrono::high_resolution_clock::now();;
     auto [priv, pub] = CommonCryptoUtils::generateEphemeralKey();
     transcript.reader_eph_priv = priv;
     transcript.reader_eph_pub  = pub;
