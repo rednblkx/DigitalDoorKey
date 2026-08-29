@@ -20,6 +20,10 @@ AliroSecureContext::AliroSecureContext(
 ddk::ApduResponse AliroSecureContext::exchange(
     ddk::Session& session, ddk::span<const uint8_t> tlvs, bool skip_chaining)
 {
+    if (!active_channel_) {
+        LOG(E, "exchange: no active secure channel");
+        return {};
+    }
     auto& ch = *active_channel_;
     auto encrypted = ch.encrypt_reader_data(
         std::vector<uint8_t>(tlvs.begin(), tlvs.end()));
@@ -40,7 +44,8 @@ ddk::ApduResponse AliroSecureContext::exchange(
 }
 
 std::optional<std::vector<uint8_t>> AliroSecureContext::envelope(
-    ddk::Session& session, ddk::span<const uint8_t> message)
+    ddk::Session& session, ddk::span<const uint8_t> message,
+    size_t max_command_chunk)
 {
     if (!step_up_) {
         LOG(E, "envelope: no step-up channel (expedited-fast only?)");
@@ -72,15 +77,17 @@ std::optional<std::vector<uint8_t>> AliroSecureContext::envelope(
 
     // ENVELOPE: CLA=0x00, INS=0xC3, P1=0x00, P2=0x00 — response chaining ON
     ddk::ApduCommand cmd{0x00, 0xC3, 0x00, 0x00, std::move(tlv), 0};
-    auto resp = session.apdu().transceive_full(cmd);
+    auto resp = session.apdu().transceive_full(cmd, /*skip_response_chaining=*/false,
+                                               max_command_chunk);
     if (resp.sw1 != 0x90) {
         LOG(E, "ENVELOPE failed: SW=%02X%02X", resp.sw1, resp.sw2);
         return std::nullopt;
     }
 
-    // Response: 0x53 TLV → SessionData {"data": bstr} or raw ciphertext
+    // Response: 0x53 TLV → SessionData {"data": bstr} or raw ciphertext.
     auto msg = BerTlvMessage::from_bytes(resp.data);
     const BerTlv* outer = msg.find(0x53);
+    if (!outer && !msg.empty()) outer = &msg.tags.front();
     if (!outer) { LOG(E, "ENVELOPE response missing 0x53"); return std::nullopt; }
 
     const auto& v = outer->value;

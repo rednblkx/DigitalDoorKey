@@ -14,12 +14,14 @@ struct AliroEndpointData {
     std::optional<uint16_t> signaling_bitmask;         // AUTH1 tag 0x5E
     std::vector<uint8_t> credential_signed_timestamp;  // AUTH1 tag 0x91 (20B tdate)
     std::vector<uint8_t> revocation_signed_timestamp;  // AUTH1 tag 0x92 (20B tdate)
+    std::vector<std::vector<uint8_t>> documents;       // step-up ENVELOPE docs (full CBOR)
     ddk::KeyFlow last_flow = ddk::kFlowNext;                     // last flow that authenticated
 
     bool empty() const {
         return key_slot.empty() && !signaling_bitmask &&
                credential_signed_timestamp.empty() &&
-               revocation_signed_timestamp.empty() && last_flow == ddk::kFlowNext;
+               revocation_signed_timestamp.empty() &&
+               documents.empty() && last_flow == ddk::kFlowNext;
     }
 };
 

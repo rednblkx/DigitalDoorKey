@@ -28,7 +28,8 @@ public:
     // Step-up ENVELOPE: encrypt DeviceRequest via step-up channel,
     // SessionData wrap, 0x53 TLV, ENVELOPE APDU, decrypt response.
     std::optional<std::vector<uint8_t>> envelope(
-        ddk::Session& session, ddk::span<const uint8_t> message);
+        ddk::Session& session, ddk::span<const uint8_t> message,
+        size_t max_command_chunk = 255);
 
 private:
     std::unique_ptr<GcmSecureChannel> exchange_channel_;

@@ -13,14 +13,16 @@ struct AliroStepUpResult {
     bool success = false;
     ddk::Issuer* issuer = nullptr;                 // matched by issuer_id
     std::vector<uint8_t> endpoint_public_key;      // 65B from MSO deviceKey
-    std::vector<std::vector<uint8_t>> documents;   // raw document CBOR blobs
+    std::vector<std::vector<uint8_t>> documents;   // full document CBOR blobs
+    std::vector<uint8_t> access_document_cbor;     // first doc with docType "aliro-a"
 };
 
 class AliroSecureContext;
 
 class AliroStepUp {
 public:
-    AliroStepUp(ddk::Session& session, AliroSecureContext& step_up_channel);
+    AliroStepUp(ddk::Session& session, AliroSecureContext& step_up_channel,
+                size_t max_command_data_size = 255);
 
     // signaling_bitmap: from AUTH1 response tag 0x5E
     // scopes: elementIdentifier → intentToRetain (from SessionConfig)
@@ -30,6 +32,7 @@ public:
 private:
     ddk::Session& session_;
     AliroSecureContext& ctx_;
+    size_t max_command_data_size_ = 255;
 
     void selectStepUpAid();
     std::vector<uint8_t> buildDeviceRequest(

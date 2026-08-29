@@ -24,6 +24,7 @@ private:
     AuthContextResult result_;
     bool ran_ = false;
     size_t max_command_data_size_ = 255;
+    std::vector<uint8_t> step_up_access_document_;
 };
 
 }  // namespace ddk::aliro

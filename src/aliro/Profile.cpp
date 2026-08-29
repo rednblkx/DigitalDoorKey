@@ -201,12 +201,13 @@ FlowState Profile::step(Session& session, FlowState current)
                    | (*stdAuth.signaling_bitmap)[1];
           }
           auto scopes = session.config().step_up_scopes.value_or(
-              std::map<std::string, bool>{{"id", false}});
-          auto step = AliroStepUp(session, *ctx).run(
+              std::map<std::string, bool>{{"matter1", true}});
+          auto step = AliroStepUp(session, *ctx, max_command_data_size_).run(
               static_cast<SignalingBitmask>(bitmap), scopes);
           if (step.success) {
             flowUsed = ddk::kFlowATTESTATION;
             foundIssuer = step.issuer;
+            step_up_access_document_ = step.access_document_cbor;
             if (foundEndpoint == nullptr) {
               ddk::Endpoint endpoint;
               endpoint.public_key = step.endpoint_public_key;
@@ -237,6 +238,7 @@ FlowState Profile::step(Session& session, FlowState current)
             foundEndpoint->persistent_key.assign(Kpersistent.begin(), Kpersistent.end());
             LOG_HEX(D, "StepUp Provisioned Persistent Key",
                     foundEndpoint->persistent_key);
+            foundEndpoint->aliro.documents = step.documents;
           }
         }
       }
@@ -313,6 +315,8 @@ AuthOutcome Profile::finalize(Session& session)
                 break;
             }
         }
+        if (!step_up_access_document_.empty())
+            outcome.access_document_cbor = step_up_access_document_;
     } else {
         outcome.state = FlowState::Failed;
         outcome.reason = FailureReason::Auth0Reject;
