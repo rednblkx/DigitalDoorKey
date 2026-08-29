@@ -32,12 +32,21 @@ FetchContent_Declare(mbedtls
     URL https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.6/mbedtls-3.6.6.tar.bz2
     URL_HASH SHA256=8fb65fae8dcae5840f793c0a334860a411f884cc537ea290ce1c52bb64ca007a)
 
-# libsodium — randombytes / RNG fallback for host builds.
-set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-FetchContent_Declare(sodium
-    GIT_REPOSITORY https://github.com/jedisct1/libsodium.git
-    GIT_TAG        1.0.20-RELEASE
-    GIT_SHALLOW    TRUE)
+include(ExternalProject)
+ExternalProject_Add(libsodium
+    URL https://download.libsodium.org/libsodium/releases/libsodium-1.0.20.tar.gz
+    URL_HASH SHA256=ebb65ef6ca439333c2bb41a0c1990587288da07f6c7fd07cb3a18cc18d30ce19
+    PREFIX ${FETCHCONTENT_BASE_DIR}/libsodium
+    CONFIGURE_COMMAND <SOURCE_DIR>/configure --prefix=<INSTALL_DIR> --enable-static --disable-shared
+    BUILD_COMMAND make -j4
+    INSTALL_COMMAND make install
+    BUILD_BYPRODUCTS <INSTALL_DIR>/lib/libsodium.a
+)
+file(MAKE_DIRECTORY ${FETCHCONTENT_BASE_DIR}/libsodium/include)
+add_library(sodium STATIC IMPORTED GLOBAL)
+set_target_properties(sodium PROPERTIES
+    IMPORTED_LOCATION ${FETCHCONTENT_BASE_DIR}/libsodium/lib/libsodium.a
+    INTERFACE_INCLUDE_DIRECTORIES ${FETCHCONTENT_BASE_DIR}/libsodium/include)
 
 # tinycbor — CBOR encode/decode (same version as the IDF managed component).
 FetchContent_Declare(tinycbor
@@ -53,7 +62,7 @@ FetchContent_Declare(catch2
     GIT_TAG        v3.7.1
     GIT_SHALLOW    TRUE)
 
-FetchContent_MakeAvailable(mbedtls sodium tinycbor catch2)
+FetchContent_MakeAvailable(mbedtls tinycbor catch2)
 
 # tinycbor v0.6.0 has no CMakeLists.txt at its repo root (Makefile-based
 # upstream build), so FetchContent populated the sources without creating
@@ -92,6 +101,7 @@ target_include_directories(ddk_under_test PUBLIC
     ${tinycbor_SOURCE_DIR}/src)
 target_include_directories(ddk_under_test PRIVATE ${DDK_ROOT}/priv)
 target_link_libraries(ddk_under_test PUBLIC mbedcrypto sodium tinycbor)
+add_dependencies(ddk_under_test libsodium)
 
 # --- Shared flow-test harness (simulated Aliro endpoint) --------------------
 
