@@ -51,7 +51,7 @@ namespace CommonCryptoUtils
   std::vector<uint8_t> decryptAesGcm(const std::vector<uint8_t> &ciphertext, const std::array<uint8_t,32> &key,
   const std::array<uint8_t,12> &iv) {
     if (ciphertext.size() < 16) {
-      ESP_LOGE(TAG, "Ciphertext too short for GCM (needs at least 16 bytes for tag)");
+      LOG(E, "Ciphertext too short for GCM (needs at least 16 bytes for tag)");
       return {};
     }
 
@@ -61,7 +61,7 @@ namespace CommonCryptoUtils
 
     int ret = mbedtls_gcm_setkey(gcm_ctx, MBEDTLS_CIPHER_ID_AES, key.data(), 256);
     if (ret != 0) {
-      ESP_LOGE(TAG, "mbedtls_gcm_setkey failed: %d", ret);
+      LOG(E, "mbedtls_gcm_setkey failed: %d", ret);
       return {};
     }
 
@@ -77,7 +77,7 @@ namespace CommonCryptoUtils
                                     ciphertext.data(), plaintext.data());
 
     if (ret != 0) {
-      ESP_LOGE(TAG, "mbedtls_gcm_auth_decrypt failed: %d", ret);
+      LOG(E, "mbedtls_gcm_auth_decrypt failed: %d", ret);
       return {};
     }
 
@@ -181,8 +181,14 @@ std::vector<uint8_t> encryptAesGcm(
       LOG(E, "gen_key - %d", gen_key);
       return std::make_tuple(std::vector<uint8_t>(), std::vector<uint8_t>());
     }
-    std::vector<uint8_t> bufPriv(mbedtls_mpi_size(&ephemeral.kp.MBEDTLS_PRIVATE(d)));
-    int mpi_write = mbedtls_mpi_write_binary(&ephemeral.kp.MBEDTLS_PRIVATE(d), bufPriv.data(), bufPriv.capacity());
+    std::vector<uint8_t> bufPriv(32, 0);
+    size_t d_size = mbedtls_mpi_size(&ephemeral.kp.MBEDTLS_PRIVATE(d));
+    if (d_size > 32) {
+      LOG(E, "gen_key - scalar longer than 32 bytes");
+      return std::make_tuple(std::vector<uint8_t>(), std::vector<uint8_t>());
+    }
+    int mpi_write = mbedtls_mpi_write_binary(&ephemeral.kp.MBEDTLS_PRIVATE(d),
+                                             bufPriv.data() + (32 - d_size), d_size);
     if(mpi_write != 0){
       LOG(E, "mpi_write - %d", mpi_write);
       return std::make_tuple(std::vector<uint8_t>(), std::vector<uint8_t>());
@@ -218,9 +224,15 @@ std::vector<uint8_t> encryptAesGcm(
     int ecp_read = mbedtls_ecp_point_read_binary(grp, point, pubKey.data(), pubKey.size());
     if(ecp_read != 0)
       LOG(E, "ecp_read - %d", ecp_read);
+    std::vector<uint8_t> X(32, 0);
     size_t buffer_size_x = mbedtls_mpi_size(&point.pt.MBEDTLS_PRIVATE(X));
-    std::vector<uint8_t> X(buffer_size_x);
-    int ecp_write = mbedtls_mpi_write_binary(&point.pt.MBEDTLS_PRIVATE(X), X.data(), buffer_size_x);
+    if (buffer_size_x > 32) {
+      LOG(E, "get_x - coordinate longer than 32 bytes");
+      return {};
+    }
+    int ecp_write = mbedtls_mpi_write_binary(&point.pt.MBEDTLS_PRIVATE(X),
+                                             X.data() + (32 - buffer_size_x),
+                                             buffer_size_x);
     if(ecp_write != 0)
       LOG(E, "ecp_write - %d", ecp_write);
     LOG(V, "%s, %s", redactHex("PublicKey", pubKey.data(), pubKey.size()).c_str(), redactHex("X Coordinate", X.data(), X.size()).c_str());

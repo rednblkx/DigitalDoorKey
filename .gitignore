@@ -1,0 +1,3 @@
+# Host test build dirs (tests/CMakeLists.txt) and CI build dir
+build/
+tests/build*/
