@@ -214,7 +214,9 @@ AliroStepUpResult AliroStepUp::parseDeviceResponse(ddk::span<const uint8_t> cbor
         std::vector<uint8_t> x, y;
         if (!extractDeviceKey(cose->payload, x, y) ||
             x.size() != 32 || y.size() != 32) {
-            LOG(W, "deviceKey extraction failed; skipping document"); continue;
+            LOG(W, "deviceKey extraction failed; skipping document");
+            LOG_HEX(V, "StepUp COSE payload", cose->payload);
+            continue;
         }
 
         if (!CoseSign1::verify(*cose, CoseAlgorithm::ES256,
@@ -240,99 +242,75 @@ bool AliroStepUp::extractDeviceKey(ddk::span<const uint8_t> payload,
                                     std::vector<uint8_t>& x_out,
                                     std::vector<uint8_t>& y_out)
 {
-    // payload = tag24(bstr) → MSO map
     CborParser parser; CborValue it;
     if (cbor_parser_init(payload.data(), payload.size(), 0, &parser, &it)
-        != CborNoError || !cbor_value_is_tag(&it))
+        != CborNoError)
         return false;
-    CborTag tag;
-    cbor_value_get_tag(&it, &tag);
-    if (tag != 24 || cbor_value_advance(&it) != CborNoError) return false;
-    if (!cbor_value_is_byte_string(&it)) return false;
 
     std::vector<uint8_t> mso;
-    size_t len = 0;
-    cbor_value_get_string_length(&it, &len);
-    mso.resize(len);
-    cbor_value_copy_byte_string(&it, mso.data(), &len, nullptr);
+    CborValue root;
+    if (cbor_value_is_tag(&it)) {
+        CborTag tag;
+        cbor_value_get_tag(&it, &tag);
+        if (tag != 24 || cbor_value_advance(&it) != CborNoError ||
+            !cbor_value_is_byte_string(&it))
+            return false;
+        size_t len = 0;
+        cbor_value_get_string_length(&it, &len);
+        mso.resize(len);
+        cbor_value_copy_byte_string(&it, mso.data(), &len, nullptr);
+    } else if (cbor_value_is_byte_string(&it)) {
+        size_t len = 0;
+        cbor_value_get_string_length(&it, &len);
+        mso.resize(len);
+        cbor_value_copy_byte_string(&it, mso.data(), &len, nullptr);
+    }
 
-    CborParser mso_parser; CborValue root;
-    if (cbor_parser_init(mso.data(), mso.size(), 0, &mso_parser, &root)
-        != CborNoError || !cbor_value_is_map(&root))
+    CborParser mso_parser;
+    if (!mso.empty()) {
+        if (cbor_parser_init(mso.data(), mso.size(), 0, &mso_parser, &root)
+            != CborNoError || !cbor_value_is_map(&root))
+            return false;
+    } else if (cbor_value_is_map(&it)) {
+        root = it;
+    } else {
+        return false;
+    }
+
+    CborValue key_info;
+    if (!find_map_field(&root, 4, &key_info) || !cbor_value_is_map(&key_info)) {
+        if (cbor_value_map_find_value(&root, "deviceKeyInfo", &key_info)
+                != CborNoError || !cbor_value_is_map(&key_info))
+            return false;
+    }
+
+    CborValue key_map;
+    if (!find_map_field(&key_info, 1, &key_map) || !cbor_value_is_map(&key_map)) {
+        if (cbor_value_map_find_value(&key_info, "deviceKey", &key_map)
+                != CborNoError || !cbor_value_is_map(&key_map))
+            return false;
+    }
+
+    CborValue x_val, y_val;
+    if (!find_map_field(&key_map, -2, &x_val) || !cbor_value_is_byte_string(&x_val))
+        return false;
+    if (!find_map_field(&key_map, -3, &y_val) || !cbor_value_is_byte_string(&y_val))
         return false;
 
-    // Find deviceKeyInfo: text key "deviceKeyInfo" OR integer key 4.
-    // Then deviceKey inside: text "deviceKey" OR integer 1.
-    // Then COSE EC2 keys -2 = x, -3 = y.
-    CborValue key_info;
-    bool found_ki = false;
-    if (cbor_value_map_find_value(&root, "deviceKeyInfo", &key_info)
-        == CborNoError && cbor_value_is_map(&key_info)) {
-        found_ki = true;
-    } else {
-        // Integer-key form: walk MSO map looking for key 4
-        CborValue walk;
-        if (cbor_value_enter_container(&root, &walk) == CborNoError) {
-            while (!cbor_value_at_end(&walk)) {
-                if (cbor_value_is_integer(&walk)) {
-                    int64_t k; cbor_value_get_int64(&walk, &k);
-                    if (cbor_value_advance(&walk) == CborNoError) {
-                        if (k == 4 && cbor_value_is_map(&walk)) {
-                            key_info = walk; found_ki = true; break;
-                        }
-                    }
-                }
-                if (cbor_value_at_end(&walk)) break;
-                cbor_value_advance(&walk);
-            }
-        }
-    }
-    if (!found_ki) return false;
-
-    // Find deviceKey: "deviceKey" or integer 1
-    CborValue key_map;
-    bool found_dk = false;
-    if (cbor_value_map_find_value(&key_info, "deviceKey", &key_map)
-        == CborNoError && cbor_value_is_map(&key_map)) {
-        found_dk = true;
-    } else {
-        CborValue walk;
-        if (cbor_value_enter_container(&key_info, &walk) == CborNoError) {
-            while (!cbor_value_at_end(&walk)) {
-                if (cbor_value_is_integer(&walk)) {
-                    int64_t k; cbor_value_get_int64(&walk, &k);
-                    if (cbor_value_advance(&walk) == CborNoError) {
-                        if (k == 1 && cbor_value_is_map(&walk)) {
-                            key_map = walk; found_dk = true; break;
-                        }
-                    }
-                }
-                if (cbor_value_at_end(&walk)) break;
-                cbor_value_advance(&walk);
-            }
-        }
-    }
-    if (!found_dk) return false;
-
-    // COSE EC2 map: -2 = x (bstr 32), -3 = y (bstr 32)
-    CborValue kv;
-    if (cbor_value_enter_container(&key_map, &kv) != CborNoError) return false;
-    while (!cbor_value_at_end(&kv)) {
-        if (cbor_value_is_integer(&kv)) {
-            int64_t k; cbor_value_get_int64(&kv, &k);
-            if (cbor_value_advance(&kv) != CborNoError) return false;
-            if ((k == -2 || k == -3) && cbor_value_is_byte_string(&kv)) {
-                size_t l = 0;
-                cbor_value_get_string_length(&kv, &l);
-                auto& out = (k == -2) ? x_out : y_out;
-                out.resize(l);
-                cbor_value_copy_byte_string(&kv, out.data(), &l, nullptr);
-            }
-        }
-        if (cbor_value_at_end(&kv)) break;
-        if (cbor_value_advance(&kv) != CborNoError) return false;
-    }
-    return !x_out.empty() && !y_out.empty();
+    size_t x_len = 0, y_len = 0;
+    if (cbor_value_get_string_length(&x_val, &x_len) != CborNoError ||
+        cbor_value_get_string_length(&y_val, &y_len) != CborNoError)
+        return false;
+    x_out.resize(x_len);
+    y_out.resize(y_len);
+    if ((x_len > 0 &&
+         cbor_value_copy_byte_string(&x_val, x_out.data(), &x_len, nullptr)
+            != CborNoError) ||
+        (y_len > 0 &&
+         cbor_value_copy_byte_string(&y_val, y_out.data(), &y_len, nullptr)
+            != CborNoError))
+        return false;
+    return true;
 }
 
 AliroStepUpResult AliroStepUp::run(
@@ -365,5 +343,6 @@ AliroStepUpResult AliroStepUp::run(
         return {};
     }
 
+    LOG_HEX(V, "StepUp DeviceResponse", *plaintext);
     return parseDeviceResponse(*plaintext);
 }

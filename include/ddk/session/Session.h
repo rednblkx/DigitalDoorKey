@@ -21,6 +21,7 @@ struct SessionConfig {
     uint8_t authentication_policy = 0x01;
     std::optional<std::vector<uint8_t>> auth0_command_vendor_extension;
     std::optional<std::map<std::string, bool>> step_up_scopes;
+    bool step_up_standard_fail = false;
 };
 
 struct Transcript {

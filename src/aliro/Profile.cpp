@@ -191,7 +191,7 @@ FlowState Profile::step(Session& session, FlowState current)
       }
       auto* ctx = static_cast<AliroSecureContext*>(session.secure_context());
 
-      if (session.config().target_flow == Flow::StepUp) {
+      if (session.config().step_up_standard_fail || session.config().target_flow == Flow::StepUp) {
         if (ctx && ctx->step_up_channel()) {
           uint16_t bitmap = static_cast<uint16_t>(
               SignalingBitmask::AccessDocumentRetrievable |
