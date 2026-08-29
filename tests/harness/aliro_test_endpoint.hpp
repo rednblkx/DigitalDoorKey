@@ -85,9 +85,15 @@ struct StepUpMaterial {
     std::vector<uint8_t> payload;    // tag24(MSO)
 };
 
+// mso_text_keys: MSO/deviceKeyInfo keys as digit text strings ("4"/"1") —
+//   the form real devices and the Python reference's fixtures use — instead
+//   of ISO integers. omit_tag24: COSE payload carries the MSO map encoding
+//   directly, without the tag-24 wrapper.
 StepUpMaterial make_step_up_material(const std::array<uint8_t, 32>& device_x,
                                      const std::array<uint8_t, 32>& device_y,
-                                     const std::vector<uint8_t>& issuer_id);
+                                     const std::vector<uint8_t>& issuer_id,
+                                     bool mso_text_keys = false,
+                                     bool omit_tag24 = false);
 
 // ES256 over ["Signature1", protected, aad="", payload] — the issuerAuth
 // signature form CoseSign1::verify_es256 expects.

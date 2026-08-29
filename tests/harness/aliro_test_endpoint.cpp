@@ -224,21 +224,34 @@ void encode_issuer_auth(CborEncoder* parent, const StepUpMaterial& m)
 
 StepUpMaterial make_step_up_material(const std::array<uint8_t, 32>& device_x,
                                      const std::array<uint8_t, 32>& device_y,
-                                     const std::vector<uint8_t>& issuer_id)
+                                     const std::vector<uint8_t>& issuer_id,
+                                     bool mso_text_keys, bool omit_tag24)
 {
     StepUpMaterial m;
     m.x.assign(device_x.begin(), device_x.end());
     m.y.assign(device_y.begin(), device_y.end());
     m.issuer_id = issuer_id;
 
-    // MSO {4: {1: {1: 2, -1: 1, -2: x, -3: y}}, 5: "aliro-a"} as tag24.
+    // MSO {4: {1: {1: 2, -1: 1, -2: x, -3: y}}, 5: "aliro-a"} — MSO keys as
+    // ISO integers or digit text strings (mso_text_keys, the real-device
+    // form); COSE labels stay integers.
+    auto enc_mso_key = [mso_text_keys](CborEncoder* e, int64_t k) {
+        if (mso_text_keys) {
+            char b[8];
+            std::snprintf(b, sizeof(b), "%lld", static_cast<long long>(k));
+            cbor_encode_text_stringz(e, b);
+        } else {
+            cbor_encode_int(e, k);
+        }
+    };
+
     uint8_t mso_buf[256];
     CborEncoder e, mso_map, ki_map, key_map;
     cbor_encoder_init(&e, mso_buf, sizeof(mso_buf), 0);
     cbor_encoder_create_map(&e, &mso_map, 2);
-    cbor_encode_int(&mso_map, 4);  // deviceKeyInfo
+    enc_mso_key(&mso_map, 4);  // deviceKeyInfo
     cbor_encoder_create_map(&mso_map, &ki_map, 1);
-    cbor_encode_int(&ki_map, 1);   // deviceKey
+    enc_mso_key(&ki_map, 1);   // deviceKey
     cbor_encoder_create_map(&ki_map, &key_map, 4);
     cbor_encode_int(&key_map, 1);  cbor_encode_int(&key_map, 2);   // kty: EC2
     cbor_encode_int(&key_map, -1); cbor_encode_int(&key_map, 1);   // crv: P-256
@@ -248,15 +261,21 @@ StepUpMaterial make_step_up_material(const std::array<uint8_t, 32>& device_x,
     cbor_encode_byte_string(&key_map, m.y.data(), m.y.size());
     cbor_encoder_close_container(&ki_map, &key_map);
     cbor_encoder_close_container(&mso_map, &ki_map);
-    cbor_encode_int(&mso_map, 5);
+    enc_mso_key(&mso_map, 5);
     cbor_encode_text_stringz(&mso_map, "aliro-a");
     cbor_encoder_close_container(&e, &mso_map);
     size_t mso_len = cbor_encoder_get_buffer_size(&e, mso_buf);
 
+    // payload = tag24(MSO), or the MSO map encoding directly when the tag is
+    // omitted (the lenient form extractDeviceKey accepts).
     uint8_t payload_buf[300];
     cbor_encoder_init(&e, payload_buf, sizeof(payload_buf), 0);
-    cbor_encode_tag(&e, 24);
-    cbor_encode_byte_string(&e, mso_buf, mso_len);
+    if (!omit_tag24) {
+        cbor_encode_tag(&e, 24);
+        cbor_encode_byte_string(&e, mso_buf, mso_len);
+    } else {
+        cbor_encode_byte_string(&e, mso_buf, mso_len);
+    }
     size_t payload_len = cbor_encoder_get_buffer_size(&e, payload_buf);
     m.payload.assign(payload_buf, payload_buf + payload_len);
     m.protected_headers = cose_es256_protected_headers();

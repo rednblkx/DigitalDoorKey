@@ -11,7 +11,9 @@
 //     ISO 18013-5 form: {1: version, 2: [docs], 3: status}) — the text-keyed
 //     legacy form is covered too.
 //  3. ES256 issuerAuth verification, MSO deviceKey extraction, full-document
-//     CBOR slicing, and access-document selection.
+//     CBOR slicing, and access-document selection. The MSO is accepted with
+//     integer keys (ISO), digit-text keys (real devices / the reference's
+//     fixtures) and with the tag-24 payload wrapper omitted.
 //  4. Negative: empty scopes rejected before any APDU; tampered signature
 //     rejected.
 
@@ -181,6 +183,24 @@ TEST_CASE("AliroStepUp round-trips the reference DeviceRequest and parses the re
     SECTION("text-keyed DeviceResponse (legacy form)")
     {
         require_round_trip(issuer_key, material, /*text_keys=*/true);
+    }
+    SECTION("MSO with digit-text keys (real-device form)")
+    {
+        // Real devices encode the MSO keys as digit text strings ("4" =
+        // deviceKeyInfo, "1" = deviceKey) — the form in the reference's
+        // fixtures — rather than ISO integers.
+        auto m = make_step_up_material(pattern32(0x10), pattern32(0x30),
+                                       kIssuerId, /*mso_text_keys=*/true);
+        m.sig = sign_cose_es256(issuer_key, m.protected_headers, m.payload);
+        require_round_trip(issuer_key, m, /*text_keys=*/false);
+    }
+    SECTION("MSO payload without the tag-24 wrapper")
+    {
+        auto m = make_step_up_material(pattern32(0x10), pattern32(0x30),
+                                       kIssuerId, /*mso_text_keys=*/true,
+                                       /*omit_tag24=*/true);
+        m.sig = sign_cose_es256(issuer_key, m.protected_headers, m.payload);
+        require_round_trip(issuer_key, m, /*text_keys=*/false);
     }
 }
 
