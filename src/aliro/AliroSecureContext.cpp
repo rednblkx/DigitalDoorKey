@@ -7,15 +7,21 @@
 
 constexpr const char* TAG = "AliroSecureContext";
 
-AliroSecureContext::AliroSecureContext(std::array<uint8_t, 32> sk_reader, std::array<uint8_t, 32> sk_device)
-  : exchange_channel_(std::make_unique<GcmSecureChannel>(sk_reader, sk_device)) {};
+AliroSecureContext::AliroSecureContext(std::array<uint8_t, 32> sk_reader, std::array<uint8_t, 32> sk_device,
+                                       std::optional<std::array<uint8_t,32>> ursk,
+                                       std::optional<std::array<uint8_t,32>> ble_sk)
+  : exchange_channel_(std::make_unique<GcmSecureChannel>(sk_reader, sk_device)),
+    ursk_(std::move(ursk)), ble_sk_(std::move(ble_sk)) {};
 
 AliroSecureContext::AliroSecureContext(
     std::unique_ptr<GcmSecureChannel> exchange,
     std::array<uint8_t,32> step_up_sk_reader,
-    std::array<uint8_t,32> step_up_sk_device)
+    std::array<uint8_t,32> step_up_sk_device,
+    std::optional<std::array<uint8_t,32>> ursk,
+    std::optional<std::array<uint8_t,32>> ble_sk)
   : exchange_channel_(std::move(exchange)),
-    step_up_(std::in_place, step_up_sk_reader, step_up_sk_device) {}
+    step_up_(std::in_place, step_up_sk_reader, step_up_sk_device),
+    ursk_(std::move(ursk)), ble_sk_(std::move(ble_sk)) {}
 
 ddk::ApduResponse AliroSecureContext::exchange(
     ddk::Session& session, ddk::span<const uint8_t> tlvs, bool skip_chaining)
@@ -32,8 +38,10 @@ ddk::ApduResponse AliroSecureContext::exchange(
         return {};
     }
 
+    // ne=256 -> case-4 short form (Le=0x00): the BLE AP parser rejects
+    // Le-less commands with General Error.
     ddk::ApduCommand cmd{0x80, 0xC9, 0x00, 0x00,
-                         std::vector<uint8_t>(encrypted.begin(), encrypted.end()), 0};
+                         std::vector<uint8_t>(encrypted.begin(), encrypted.end()), 256};
     auto resp = session.apdu().transceive_full(cmd, skip_chaining);
     if (!resp.ok() || resp.data.empty()) {
         return resp;

@@ -9,17 +9,22 @@ class AliroSecureContext : public ddk::SecureContext {
 public:
     // Expedited-only construction (FAST auth — no step-up keys)
     AliroSecureContext(std::array<uint8_t,32> exchange_sk_reader,
-                       std::array<uint8_t,32> exchange_sk_device);
+                       std::array<uint8_t,32> exchange_sk_device,
+                       std::optional<std::array<uint8_t,32>> ursk = std::nullopt,
+                       std::optional<std::array<uint8_t,32>> ble_sk = std::nullopt);
 
     // Standard construction — includes step-up channel
     AliroSecureContext(std::unique_ptr<GcmSecureChannel> exchange,
-											 std::array<uint8_t,32> exchange_sk_reader,
-                       std::array<uint8_t,32> exchange_sk_device);
+												 std::array<uint8_t,32> exchange_sk_reader,
+                       std::array<uint8_t,32> exchange_sk_device,
+                       std::optional<std::array<uint8_t,32>> ursk = std::nullopt,
+                       std::optional<std::array<uint8_t,32>> ble_sk = std::nullopt);
 
     [[nodiscard]] GcmSecureChannel* exchange_channel() const { return exchange_channel_.get(); }
     GcmSecureChannel* step_up_channel() { return step_up_.has_value()
                                             ? &*step_up_ : nullptr; }
-    // URSK accessor when BLE+UWB lands
+    const std::optional<std::array<uint8_t,32>>& ursk() const { return ursk_; }
+    const std::optional<std::array<uint8_t,32>>& ble_sk() const { return ble_sk_; }
 
     ddk::ApduResponse exchange(ddk::Session& session,
                                ddk::span<const uint8_t> tlvs,
@@ -35,6 +40,6 @@ private:
     std::unique_ptr<GcmSecureChannel> exchange_channel_;
     std::optional<GcmSecureChannel> step_up_;
     GcmSecureChannel* active_channel_ = exchange_channel_.get();
-    // ENVELOPE switches active_channel_ to step-up when present;
-    // post-step-up EXCHANGE (0x97 completion) uses it too (8.3.3.5).
+    std::optional<std::array<uint8_t,32>> ursk_;
+    std::optional<std::array<uint8_t,32>> ble_sk_;
 };

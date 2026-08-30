@@ -5,7 +5,7 @@
 
 namespace ddk::aliro {
 
-class Profile final : public ddk::Profile {
+class Profile : public ddk::Profile {
 public:
     explicit Profile();
 
@@ -14,11 +14,18 @@ public:
 
     FlowState step(Session& session, FlowState current) override;
 
-    bool complete(Session& session, ReaderStatus status);
+    virtual bool complete(Session& session, ReaderStatus status);
     AuthOutcome finalize(Session& session) override;
 
     ApduResponse control_flow(
         Session& session, uint8_t s1, uint8_t s2) override;
+
+    // NFC parses this from the SELECT FCI (0x7F66 ext-info); the BLE flow
+    // parses the device's 0xA5 proprietary info and sets it before stepping.
+    void set_max_command_data_size(size_t size) { max_command_data_size_ = size; }
+
+protected:
+    virtual bool on_auth_success(Session& session) { (void)session; return true; }
 
 private:
     AuthContextResult result_;

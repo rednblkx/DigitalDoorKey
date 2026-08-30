@@ -1,5 +1,6 @@
 #pragma once
 #include "mbedtls/ecp.h"
+#include "ddk/Span.h"
 #include <vector>
 #include <array>
 #include <mbedtls/aes.h>
@@ -56,15 +57,17 @@ bool constant_time_compare(const uint8_t* a, const uint8_t* b, size_t len);
 bool constant_time_compare(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b);
 
 std::vector<uint8_t> decryptAesGcm(
-    const std::vector<uint8_t>& ciphertext, 
+    const std::vector<uint8_t>& ciphertext,
     const std::array<uint8_t, 32>& key,
-    const std::array<uint8_t, 12>& iv
+    const std::array<uint8_t, 12>& iv,
+    ddk::span<const uint8_t> aad = {}
 );
 
 std::vector<uint8_t> encryptAesGcm(
     const std::vector<uint8_t>& plaintext,
     const std::array<uint8_t, 32>& key,
-    const std::array<uint8_t, 12>& iv
+    const std::array<uint8_t, 12>& iv,
+    ddk::span<const uint8_t> aad = {}
 );
 
 std::tuple<std::vector<uint8_t>, std::vector<uint8_t>> generateEphemeralKey();

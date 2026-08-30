@@ -1,5 +1,6 @@
 #pragma once
 #include "SecureBuffer.h"
+#include "ddk/Span.h"
 #include <array>
 #include <cstdint>
 #include <vector>
@@ -11,9 +12,14 @@ public:
                      uint32_t counter_reader = 1,
                      uint32_t counter_endpoint = 1);
 
-    // Raw data — used by ENVELOPE (0xC3) and AUTH1 decrypt
-    std::vector<uint8_t> encrypt_reader_data(const std::vector<uint8_t> &plaintext);
-    std::vector<uint8_t> decrypt_endpoint_data(const std::vector<uint8_t> &ciphertext);
+    std::vector<uint8_t> encrypt_reader_data(const std::vector<uint8_t> &plaintext,
+                                             ddk::span<const uint8_t> aad = {});
+    std::vector<uint8_t> decrypt_endpoint_data(const std::vector<uint8_t> &ciphertext,
+                                               ddk::span<const uint8_t> aad = {});
+    std::vector<uint8_t> encrypt_endpoint_data(const std::vector<uint8_t> &plaintext,
+                                               ddk::span<const uint8_t> aad = {});
+    std::vector<uint8_t> decrypt_reader_data(const std::vector<uint8_t> &ciphertext,
+                                             ddk::span<const uint8_t> aad = {});
 
     // APDU-wrapped — used by EXCHANGE (0xC9)
     struct EncryptedCommand {

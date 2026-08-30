@@ -22,6 +22,7 @@ public:
         std::array<uint8_t,32> cryptogram_sk;
         std::array<uint8_t,32> exchange_sk_reader;
         std::array<uint8_t,32> exchange_sk_device;
+        std::array<uint8_t,32> ble_sk;
         std::array<uint8_t,32> uwb_ranging_sk;
     };
     FastResult derive_fast(
@@ -36,6 +37,8 @@ public:
         std::array<uint8_t,32> exchange_sk_device;
         std::array<uint8_t,32> step_up_sk_reader;
         std::array<uint8_t,32> step_up_sk_device;
+        std::array<uint8_t,32> ble_sk;
+        std::array<uint8_t,32> uwb_ranging_sk;
     };
     VolatileResult derive_volatile(
         const SessionInput& input,
@@ -47,4 +50,16 @@ public:
         const SessionInput& input,
         ddk::span<const uint8_t,32> derived_key,
         ddk::span<const uint8_t> endpoint_pk_x);
+
+    // BleSK → per-direction keys via HKDF-SHA256 with
+    // salt = reader_supported_versions || user_device_selected_version
+    // (anti-downgrade binding of the GATT version lists).
+    struct BleSessionKeys {
+        std::array<uint8_t,32> sk_reader;
+        std::array<uint8_t,32> sk_device;
+    };
+    static BleSessionKeys derive_ble_session_keys(
+        ddk::span<const uint8_t> ble_sk,
+        ddk::span<const uint8_t> reader_supported_versions,
+        ddk::span<const uint8_t> device_selected_versions);
 };

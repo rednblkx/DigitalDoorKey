@@ -137,7 +137,8 @@ FlowState Profile::step(Session& session, FlowState current)
   std::vector<uint8_t> apdu{0x80, 0x80, 0x00, 0x00, static_cast<uint8_t>(fastTlv.size())};
   apdu.insert(apdu.end(), std::make_move_iterator(fastTlv.begin()),
               std::make_move_iterator(fastTlv.end()));
-
+  apdu.push_back(0x00);   // Le: case-4 short form — the BLE AP parser rejects
+                          // Le-less commands with General Error
   auto response = session.apdu().transceive(apdu);
 
   if (response.ok() && response.data.size() > 64 && response.data[0] == 0x86) {
@@ -164,7 +165,9 @@ FlowState Profile::step(Session& session, FlowState current)
         auto fastAuth = AliroFastAuth(session).attest(encryptedMessage);
         if (fastAuth && (flowUsed = fastAuth.flow) == ddk::kFlowFAST) {
             session.set_secure_context(std::make_unique<AliroSecureContext>(
-              fastAuth.exchange_sk_reader, fastAuth.exchange_sk_device));
+              fastAuth.exchange_sk_reader, fastAuth.exchange_sk_device,
+              fastAuth.uwb_ranging_sk, fastAuth.ble_sk));
+            if (!on_auth_success(session)) return FlowState::Failed;
             foundIssuer = fastAuth.issuer;
             foundEndpoint = fastAuth.endpoint;
             LOG(D, "Endpoint %s Authenticated via FAST Flow", redactHex("", foundEndpoint->id.data(), foundEndpoint->id.size()).c_str());
@@ -177,8 +180,10 @@ FlowState Profile::step(Session& session, FlowState current)
       auto stdAuth = AliroStdAuth(session).attest();
         session.set_secure_context(std::make_unique<AliroSecureContext>(
           std::move(stdAuth.gcm_context),
-          stdAuth.step_up_sk_reader, stdAuth.step_up_sk_device));
+          stdAuth.step_up_sk_reader, stdAuth.step_up_sk_device,
+          stdAuth.uwb_ranging_sk, stdAuth.ble_sk));
       if (stdAuth) {
+        if (!on_auth_success(session)) return FlowState::Failed;
         foundIssuer = stdAuth.issuer;
         foundEndpoint = stdAuth.endpoint;
         if ((flowUsed = stdAuth.flow) == ddk::kFlowSTANDARD)

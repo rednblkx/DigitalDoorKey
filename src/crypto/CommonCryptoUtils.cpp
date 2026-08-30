@@ -49,7 +49,7 @@ namespace CommonCryptoUtils
   // --- ECC Utilities ---
   
   std::vector<uint8_t> decryptAesGcm(const std::vector<uint8_t> &ciphertext, const std::array<uint8_t,32> &key,
-  const std::array<uint8_t,12> &iv) {
+  const std::array<uint8_t,12> &iv, ddk::span<const uint8_t> aad) {
     if (ciphertext.size() < 16) {
       LOG(E, "Ciphertext too short for GCM (needs at least 16 bytes for tag)");
       return {};
@@ -72,7 +72,7 @@ namespace CommonCryptoUtils
 
     ret = mbedtls_gcm_auth_decrypt(gcm_ctx, ciphertext_len,
                                     iv.data(), 12,  // 12-byte IV
-                                    nullptr, 0,  // no additional data
+                                    aad.empty() ? nullptr : aad.data(), aad.size(),
                                     tag, 16,  // 16-byte tag
                                     ciphertext.data(), plaintext.data());
 
@@ -87,7 +87,8 @@ namespace CommonCryptoUtils
 std::vector<uint8_t> encryptAesGcm(
     const std::vector<uint8_t>& plaintext,
     const std::array<uint8_t, 32>& key,
-    const std::array<uint8_t, 12>& iv)
+    const std::array<uint8_t, 12>& iv,
+    ddk::span<const uint8_t> aad)
 {
     GcmGuard gcm_ctx;
     int ret = mbedtls_gcm_setkey(gcm_ctx, MBEDTLS_CIPHER_ID_AES, key.data(), 256);
@@ -103,7 +104,7 @@ std::vector<uint8_t> encryptAesGcm(
         MBEDTLS_GCM_ENCRYPT,
         plaintext.size(),
         iv.data(), 12,
-        nullptr, 0,
+        aad.empty() ? nullptr : aad.data(), aad.size(),
         plaintext.data(),
         ciphertext.data(),
         16, tag.data());

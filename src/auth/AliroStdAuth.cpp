@@ -81,6 +81,7 @@ AliroStdAuthResult AliroStdAuth::attest()
     apdu.push_back(0x01);
     apdu.push_back(0x01); // REQUEST_PUBLIC_KEY
     apdu.insert(apdu.end(), sigTlv.begin(), sigTlv.end());
+    apdu.push_back(0x00);   // Le: case-4 short form (see Profile::step AUTH0)
 
     LOG(D, "%s", redactHex("Auth1 APDU", apdu).c_str());
     auto response = session_.apdu().transceive(apdu);
@@ -127,6 +128,8 @@ AliroStdAuthResult AliroStdAuth::attest()
     result.step_up_sk_reader = vol.step_up_sk_reader;
     result.step_up_sk_device = vol.step_up_sk_device;
     result.derived_key = derivedKey;
+    result.ble_sk = vol.ble_sk;
+    result.uwb_ranging_sk = vol.uwb_ranging_sk;
 
     // --- Decrypt AUTH1 response via GCM ---
 

@@ -90,6 +90,7 @@ AliroKeySchedule::FastResult AliroKeySchedule::derive_fast(
     std::copy_n(okm.data() + 0x00, 32, result.cryptogram_sk.begin());
     std::copy_n(okm.data() + 0x20, 32, result.exchange_sk_reader.begin());
     std::copy_n(okm.data() + 0x40, 32, result.exchange_sk_device.begin());
+    std::copy_n(okm.data() + 0x60, 32, result.ble_sk.begin());
     std::copy_n(okm.data() + 0x80, 32, result.uwb_ranging_sk.begin());
     return result;
 }
@@ -109,6 +110,8 @@ AliroKeySchedule::VolatileResult AliroKeySchedule::derive_volatile(
         okm.data(), 160);
     std::copy_n(okm.data() + 0x00, 32, result.exchange_sk_reader.begin());
     std::copy_n(okm.data() + 0x20, 32, result.exchange_sk_device.begin());
+    std::copy_n(okm.data() + 0x60, 32, result.ble_sk.begin());
+    std::copy_n(okm.data() + 0x80, 32, result.uwb_ranging_sk.begin());
     std::array<uint8_t,32> step_up_input{};
     std::copy_n(okm.data() + 0x40, 32, step_up_input.data());
     constexpr std::array<uint8_t,32> kZeroSalt{};
@@ -133,4 +136,26 @@ std::array<uint8_t,32> AliroKeySchedule::derive_persistent(
         input.endpoint_eph_x.data(), input.endpoint_eph_x.size(),
         result.data(), 32);
     return result;
+}
+
+AliroKeySchedule::BleSessionKeys AliroKeySchedule::derive_ble_session_keys(
+    ddk::span<const uint8_t> ble_sk,
+    ddk::span<const uint8_t> reader_supported_versions,
+    ddk::span<const uint8_t> device_selected_versions)
+{
+    std::vector<uint8_t> salt;
+    salt.reserve(reader_supported_versions.size() + device_selected_versions.size());
+    salt.insert(salt.end(), reader_supported_versions.begin(), reader_supported_versions.end());
+    salt.insert(salt.end(), device_selected_versions.begin(), device_selected_versions.end());
+
+    BleSessionKeys out{};
+    mbedtls_hkdf(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256),
+                 salt.data(), salt.size(),
+                 ble_sk.data(), ble_sk.size(),
+                 (const uint8_t*)"BleSKReader", 11, out.sk_reader.data(), 32);
+    mbedtls_hkdf(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256),
+                 salt.data(), salt.size(),
+                 ble_sk.data(), ble_sk.size(),
+                 (const uint8_t*)"BleSKDevice", 11, out.sk_device.data(), 32);
+    return out;
 }

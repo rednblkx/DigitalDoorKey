@@ -32,19 +32,19 @@ std::array<uint8_t,12> GcmSecureChannel::make_iv_endpoint() const {
 }
 
 std::vector<uint8_t> GcmSecureChannel::encrypt_reader_data(
-    const std::vector<uint8_t> &plaintext) {
+    const std::vector<uint8_t> &plaintext, ddk::span<const uint8_t> aad) {
     if (plaintext.empty()) return {};
     auto iv = make_iv_reader();
-    auto ct = CommonCryptoUtils::encryptAesGcm(plaintext, sk_reader_, iv);
+    auto ct = CommonCryptoUtils::encryptAesGcm(plaintext, sk_reader_, iv, aad);
     counter_reader_++;
     return ct;
 }
 
 std::vector<uint8_t> GcmSecureChannel::decrypt_endpoint_data(
-    const std::vector<uint8_t> &ciphertext) {
+    const std::vector<uint8_t> &ciphertext, ddk::span<const uint8_t> aad) {
     if (ciphertext.empty()) return {};
     auto iv = make_iv_endpoint();
-    auto pt = CommonCryptoUtils::decryptAesGcm(ciphertext, sk_device_, iv);
+    auto pt = CommonCryptoUtils::decryptAesGcm(ciphertext, sk_device_, iv, aad);
     if (!pt.empty()) {
         counter_endpoint_++;
     } else {
@@ -63,4 +63,27 @@ GcmSecureChannel::DecryptedResponse GcmSecureChannel::decrypt_response(
     const std::vector<uint8_t> &response_data) {
     auto pt = decrypt_endpoint_data(response_data);
     return {std::move(pt), counter_endpoint_};
+}
+
+// Device-role primitives: same IV scheme, mirrored direction. Used by
+// BleMessageSecurity when running on the user-device side (tests).
+
+std::vector<uint8_t> GcmSecureChannel::encrypt_endpoint_data(
+    const std::vector<uint8_t> &plaintext, ddk::span<const uint8_t> aad) {
+    if (plaintext.empty()) return {};
+    auto ct = CommonCryptoUtils::encryptAesGcm(plaintext, sk_device_, make_iv_endpoint(), aad);
+    counter_endpoint_++;
+    return ct;
+}
+
+std::vector<uint8_t> GcmSecureChannel::decrypt_reader_data(
+    const std::vector<uint8_t> &ciphertext, ddk::span<const uint8_t> aad) {
+    if (ciphertext.empty()) return {};
+    auto pt = CommonCryptoUtils::decryptAesGcm(ciphertext, sk_reader_, make_iv_reader(), aad);
+    if (!pt.empty()) {
+        counter_reader_++;
+    } else {
+        LOG(E, "GCM decrypt failed (tag verification)");
+    }
+    return pt;
 }

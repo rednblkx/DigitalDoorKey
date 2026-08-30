@@ -31,6 +31,8 @@ struct FastAuthResult {
     ddk::KeyFlow flow = ddk::kFlowFailed;
     std::array<uint8_t,32> exchange_sk_reader{};
     std::array<uint8_t,32> exchange_sk_device{};
+    std::array<uint8_t,32> ble_sk{};
+    std::array<uint8_t,32> uwb_ranging_sk{};
     explicit operator bool() const { return flow == ddk::kFlowFAST; }
 };
 
@@ -51,6 +53,8 @@ struct AliroStdAuthResult {
     std::array<uint8_t,32> step_up_sk_device{};
     std::array<uint8_t,32> persistent_key{};
     std::array<uint8_t,32> derived_key{};
+    std::array<uint8_t,32> ble_sk{};
+    std::array<uint8_t,32> uwb_ranging_sk{};
     std::vector<uint8_t> key_slot;
     std::optional<std::array<uint8_t,2>> signaling_bitmap{};
     std::vector<uint8_t> credential_signed_timestamp;

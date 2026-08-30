@@ -40,8 +40,10 @@ FastAuthResult AliroFastAuth::attest(const std::vector<uint8_t>& cryptogram)
             if (!plaintext.empty()) {
                 TLV8 tlv;
                 tlv.parse(plaintext.data(), plaintext.size());
-                if (tlv.expect(0x5E) && tlv.expect(0x91) && tlv.expect(0x92)) {          
-                    return {&issuer, &endpoint, ddk::kFlowFAST, result.exchange_sk_reader, result.exchange_sk_device};
+                if (tlv.expect(0x5E) && tlv.expect(0x91) && tlv.expect(0x92)) {
+                    return {&issuer, &endpoint, ddk::kFlowFAST,
+                            result.exchange_sk_reader, result.exchange_sk_device,
+                            result.ble_sk, result.uwb_ranging_sk};
                 }
             }
         }
