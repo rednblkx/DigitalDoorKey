@@ -154,6 +154,9 @@ public:
     P256KeyPair endpoint_key{};               // static key; store must match
     std::array<uint8_t, 32> persistent_key{}; // pre-provisioned fast key
     std::array<uint8_t, 32> reader_pk_x{};    // reader static key X (provisioned out-of-band)
+    // Interface byte fed into the key schedule — the BLE device harness
+    // flips this to TransportKind::Ble so both sides derive identical keys.
+    ddk::TransportKind interface_kind = ddk::TransportKind::Nfc;
     EndpointScenario scenario;
 
     // Step-up credential material (device side). device_key defaults to the
@@ -179,6 +182,11 @@ public:
     // Key-schedule recording — lets tests recompute the expected Kpersistent.
     AliroKeySchedule::SessionInput recorded_session_input() const;
     std::array<uint8_t, 32> derived_key{};     // X963KDF output from AUTH1
+
+    // BLE+UWB extras captured device-side while serving AUTH0/AUTH1 —
+    // the BLE device harness derives its BleSK channels from these.
+    std::array<uint8_t, 32> fast_ble_sk{}, fast_ursk{};
+    std::array<uint8_t, 32> std_ble_sk{}, std_ursk{};
 
     ddk::NfcChannel::Callback callback();
 

@@ -79,10 +79,17 @@ set(DDK_SOURCES
     ${DDK_ROOT}/src/session/Session.cpp
     ${DDK_ROOT}/src/transport/ApduCommand.cpp
     ${DDK_ROOT}/src/transport/NfcChannel.cpp
+    ${DDK_ROOT}/src/transport/BleMessages.cpp
+    ${DDK_ROOT}/src/transport/BleMessageSecurity.cpp
+    ${DDK_ROOT}/src/transport/BleTransport.cpp
+    ${DDK_ROOT}/src/transport/BleChannel.cpp
     ${DDK_ROOT}/src/crypto/CommonCryptoUtils.cpp
     ${DDK_ROOT}/src/crypto/GcmSecureChannel.cpp
     ${DDK_ROOT}/src/crypto/x963kdf.cpp
     ${DDK_ROOT}/src/aliro/Profile.cpp
+    ${DDK_ROOT}/src/aliro/BleProfile.cpp
+    ${DDK_ROOT}/src/aliro/BleFlow.cpp
+    ${DDK_ROOT}/src/aliro/BleAdvertising.cpp
     ${DDK_ROOT}/src/aliro/AliroKeySchedule.cpp
     ${DDK_ROOT}/src/aliro/AliroSecureContext.cpp
     ${DDK_ROOT}/src/aliro/AliroStepUp.cpp
@@ -104,9 +111,14 @@ target_link_libraries(ddk_under_test PUBLIC mbedcrypto sodium tinycbor)
 add_dependencies(ddk_under_test libsodium)
 
 # --- Shared flow-test harness (simulated Aliro endpoint) --------------------
+# The BLE additions reuse the same endpoint: a loopback BleLink pair plus a
+# simulated user device running the device side of the BLE flows on its own
+# thread.
 
 add_library(aliro_test_harness STATIC
-    harness/aliro_test_endpoint.cpp)
+    harness/aliro_test_endpoint.cpp
+    harness/ble_loopback.cpp
+    harness/aliro_ble_device.cpp)
 target_include_directories(aliro_test_harness PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/harness
     ${DDK_ROOT}/priv)
@@ -126,13 +138,18 @@ foreach(t IN ITEMS span_test ndef_pack_test ndef_unpack_test)
 endforeach()
 
 # Catch2 tests — the Fast/Standard flow tests, the step-up parser unit
-# tests, and the full step-up flow, all sharing the simulated-endpoint
-# harness.
+# tests, the full step-up flow, and the BLE transport/flow tests, all
+# sharing the simulated-endpoint harness.
 foreach(t IN ITEMS
         aliro_fast_flow_test
         aliro_standard_flow_test
         aliro_stepup_parser_test
-        aliro_stepup_flow_test)
+        aliro_stepup_flow_test
+        aliro_ble_message_test
+        aliro_ble_advertising_test
+        aliro_ble_security_test
+        aliro_ble_flow_test
+        aliro_uwb_flow_test)
     add_executable(${t} ${t}.cpp)
     target_link_libraries(${t} PRIVATE aliro_test_harness Catch2::Catch2WithMain)
     add_test(NAME ${t} COMMAND ${t})

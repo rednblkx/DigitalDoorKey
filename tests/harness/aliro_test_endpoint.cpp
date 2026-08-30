@@ -378,7 +378,12 @@ ddk::NfcChannel::Callback AliroTestEndpoint::callback()
         const uint8_t cla = command[0];
         const uint8_t ins = command[1];
         apdus_seen.emplace_back(cla, ins);
-        std::vector<uint8_t> data(command.begin() + 5, command.end());
+        // Lc-aware: take exactly Lc data bytes, so a case-4 trailing Le
+        // (the phone-side framing) never leaks into the parsed payload.
+        const size_t lc = command[4];
+        if (command.size() < 5 + lc) return false;
+        std::vector<uint8_t> data(command.begin() + 5,
+                                  command.begin() + 5 + lc);
 
         ddk::ApduResponse r;
         switch (ins) {
@@ -423,7 +428,7 @@ AliroKeySchedule::SessionInput AliroTestEndpoint::session_input(
     in.version = version;
     in.flags = flags;
     in.fci_proprietary = fci;
-    in.interface = static_cast<uint8_t>(ddk::TransportKind::Nfc);
+    in.interface = static_cast<uint8_t>(interface_kind);
     in.auth0_info_suffix = {};
     return in;
 }
@@ -473,6 +478,8 @@ ddk::ApduResponse AliroTestEndpoint::handle_auth0(const std::vector<uint8_t>& da
                                          endpoint_key.pub_x, persistent_key);
         fast_sk_reader = fast.exchange_sk_reader;
         fast_sk_device = fast.exchange_sk_device;
+        fast_ble_sk = fast.ble_sk;
+        fast_ursk = fast.uwb_ranging_sk;
 
         std::array<uint8_t, 32> sk = fast.cryptogram_sk;
         if (scenario.tamper_cryptogram) {
@@ -513,6 +520,8 @@ ddk::ApduResponse AliroTestEndpoint::handle_auth1(const std::vector<uint8_t>& da
     std_sk_device = vol.exchange_sk_device;
     step_up_sk_reader = vol.step_up_sk_reader;
     step_up_sk_device = vol.step_up_sk_device;
+    std_ble_sk = vol.ble_sk;
+    std_ursk = vol.uwb_ranging_sk;
     derived_key = derived;
     recorded_fci = fci;
 
