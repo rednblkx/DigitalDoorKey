@@ -1,11 +1,9 @@
 #pragma once
 
 #include <cstdio>
-#include <iostream>
 #include <vector>    // For value storage
 #include <cstdint>
-#include <ostream>
-#include <iomanip>   // For printing hex
+#include <string>    // For to_hex() error strings
 #include <algorithm> // For std::find_if
 #include <cstring>   // For memcpy
 
@@ -47,10 +45,9 @@ private:
 
     // Helper for hex conversion in errors
     static std::string to_hex(uint8_t val) {
-        std::stringstream ss;
-        ss << std::hex << std::setw(2) << std::setfill('0')
-           << static_cast<int>(val);
-        return ss.str();
+        char buf[5]; // "0xXX" + NUL
+        snprintf(buf, sizeof(buf), "0x%02x", static_cast<int>(val));
+        return std::string(buf);
     }
 
 public:
@@ -356,7 +353,7 @@ public:
 
         if (current_pos != end_pos) {
             // Could indicate trailing garbage data. Add warning/error if needed.
-            std::cerr << "Warning: Trailing data left after unpacking." << std::endl;
+            printf("Warning: Trailing data left after unpacking.\n");
             return;
         }
 
