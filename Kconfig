@@ -1,5 +1,28 @@
 menu "Digital Door Key Configuration"
 
+    choice DDK_PROTOCOL_STACK
+        prompt "Protocol stack"
+        default DDK_PROTOCOL_ALIRO
+        help
+            Only one stack can be used by the firmware at a time, so only the selected
+            stack's sources are compiled. Headers of the unselected stack remain visible
+            but its symbols are not linked: the application must not call the other
+            stack's API.
+
+        config DDK_PROTOCOL_ALIRO
+            bool "Aliro"
+            help
+                Aliro (Matter) reader stack: NFC + BLE access protocol, step-up, and the
+                BLE transport (BleFlow / BleChannel / BleLink adapter).
+
+        config DDK_PROTOCOL_HOMEKEY
+            bool "HomeKey"
+            help
+                Apple HomeKey reader stack: NFC flows and HAP provisioning glue
+                (HK_HomeKit). Excludes the Aliro and BLE transport sources.
+
+    endchoice
+
     config DDK_LOG_FULL_HEX
         bool "Enable full hex logging for sensitive data"
         default n

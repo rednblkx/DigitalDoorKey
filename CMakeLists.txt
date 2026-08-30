@@ -1,5 +1,17 @@
 FILE(GLOB_RECURSE app_sources ${CMAKE_CURRENT_SOURCE_DIR}/src/*.*)
 if(ESP_PLATFORM)
+if(CONFIG_DDK_PROTOCOL_ALIRO)
+    list(FILTER app_sources EXCLUDE REGEX "/src/homekey/")
+    list(FILTER app_sources EXCLUDE REGEX "/src/auth/(HK|Attestation)")
+    list(FILTER app_sources EXCLUDE REGEX "/src/crypto/(ScbSecureChannel|ISO18013SecureContext)\\.cpp")
+    list(FILTER app_sources EXCLUDE REGEX "/src/utils/(ndef|HK_HomeKit)\\.cpp")
+elseif(CONFIG_DDK_PROTOCOL_HOMEKEY)
+    list(FILTER app_sources EXCLUDE REGEX "/src/aliro/")
+    list(FILTER app_sources EXCLUDE REGEX "/src/auth/Aliro")
+    list(FILTER app_sources EXCLUDE REGEX "/src/crypto/GcmSecureChannel\\.cpp")
+    list(FILTER app_sources EXCLUDE REGEX "/src/utils/BerTlv\\.cpp")
+    list(FILTER app_sources EXCLUDE REGEX "/src/transport/Ble")
+endif()
 idf_component_register(
         SRCS ${app_sources}
         REQUIRES nvs_flash
