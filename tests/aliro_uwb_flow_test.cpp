@@ -13,7 +13,9 @@
 #include "ddk/aliro/UwbRangingChannel.h"
 
 #include <algorithm>
+#include <chrono>
 #include <optional>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -61,7 +63,11 @@ struct FakeUwbChannel : public ddk::aliro::UwbRangingChannel {
         }
     }
     void poll() override { ++polls; }
+    bool ranging_active() const override { return ranging_live; }
     void stop() override { stopped = true; }
+
+    // Pretend M4 completed and the responder is on the radio.
+    bool ranging_live = false;
 };
 
 struct UwbRig {
@@ -194,4 +200,30 @@ TEST_CASE("Without a UWB channel, ranging requests are still declined",
     CHECK(rig.channel.frames_in.empty());
     CHECK(rig.channel.polls == 0);
     CHECK_FALSE(rig.channel.stopped);            // never registered → never stopped
+}
+
+TEST_CASE("A live ranging session outlives the post-AP idle timeout",
+          "[ble][uwb]") {
+    UwbRig rig(/*provision_persistent_key=*/true);
+    rig.base.endpoint.scenario.serve_cryptogram = true;
+    rig.device->arm_ranging_initiation();
+    rig.channel.reply_after_initiate = m1_frame();
+    rig.channel.ranging_live = true;   // responder on the radio: hold the session
+
+    // Close the link from the device side well past the 400 ms idle window.
+    // If the flow still ended on idle (or on an absolute post-AP cap), run()
+    // would return before the closer fires.
+    const auto started = std::chrono::steady_clock::now();
+    constexpr int kCloseAfterMs = 900;
+    std::thread closer([&] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(kCloseAfterMs));
+        rig.device_link->close();
+    });
+    auto outcome = rig.run();
+    closer.join();
+    REQUIRE(outcome.state == FlowState::Done);
+    auto served_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                         std::chrono::steady_clock::now() - started).count();
+    CHECK(served_ms >= kCloseAfterMs - 100);   // held open until the link broke
+    CHECK(rig.channel.stopped);               // and was torn down properly
 }
