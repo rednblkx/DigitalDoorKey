@@ -32,7 +32,7 @@ ddk::ApduResponse BleChannel::transceive(ddk::span<const uint8_t> capdu) {
     if (!transport_.send(rq))
         return {{}, 0x6F, 0x00};
 
-    const auto deadline = clock::now() + std::chrono::milliseconds(response_timeout_ms_);
+    auto deadline = clock::now() + std::chrono::milliseconds(response_timeout_ms_);
     for (;;) {
         long remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
                              deadline - clock::now()).count();
@@ -75,6 +75,7 @@ ddk::ApduResponse BleChannel::transceive(ddk::span<const uint8_t> capdu) {
             auto attrs = ddk::ble::parse_attributes(msg->payload);
             if (attrs && ddk::ble::find_attribute(*attrs, ddk::ble::event_attr::kBusy)) {
                 LOG(D, "Event Busy — responseTimeout reset");
+                deadline = clock::now() + std::chrono::milliseconds(response_timeout_ms_);
                 continue;
             }
             if (attrs && ddk::ble::find_attribute(*attrs, ddk::ble::event_attr::kGeneralError)) {

@@ -114,7 +114,7 @@ void BleFlow::send_ap_completed() {
     ap_completed_ = true;
     send_notification(notification_id::kReaderStatusApCompleted,
                       ddk::ble::reader_status_ap_completed(
-                          status_byte(ReaderStatus::StateUnsecure),
+                          status_byte(ReaderStatus::StateUnknown),
                           config_.unsolicited_status_mode));
     // Expedited/step-up keys are deleted by both sides at AP Completed
     // drop the context, only BleSK stays live.
@@ -395,6 +395,11 @@ void BleFlow::serve_post_ap() {
     // the M1–M4 machine and the Time Sync handling parity); everything else
     // follows the generic post-AP dispatch.
     auto handle_post_ap = [this, &dispatch](const BleMessage& msg) -> bool {
+        if (msg.type == ProtocolType::Supplementary) {
+            if (callbacks_.on_time_sync) {
+                callbacks_.on_time_sync(msg.payload);
+            }
+        }
         bool uwb_relevant =
             msg.type == ProtocolType::UwbRanging ||
             (msg.type == ProtocolType::Notification &&
@@ -418,11 +423,19 @@ void BleFlow::serve_post_ap() {
     // exchange is lock-step, and poll() must tick between messages so range
     // latches surface while the loop waits.
     const uint32_t slice_ms = uwb_channel_ ? 200 : config_.post_ap_idle_ms;
-    const auto deadline = std::chrono::steady_clock::now() +
-                          std::chrono::milliseconds(config_.post_ap_idle_ms);
+    // Idle deadline, not a session cap: any received frame pushes it out, and
+    // a live ranging session holds it open indefinitely (the phone stops
+    // talking BLE once it ranges; only link loss or a General Error ends it).
+    auto idle_deadline = std::chrono::steady_clock::now() +
+                         std::chrono::milliseconds(config_.post_ap_idle_ms);
+    auto push_idle_deadline = [&idle_deadline, this] {
+        idle_deadline = std::chrono::steady_clock::now() +
+                        std::chrono::milliseconds(config_.post_ap_idle_ms);
+    };
     while (!transport_->link_down() && !transport_->security_aborted()) {
+        if (uwb_channel_ && uwb_channel_->ranging_active()) push_idle_deadline();
         long remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
-                             deadline - std::chrono::steady_clock::now()).count();
+                             idle_deadline - std::chrono::steady_clock::now()).count();
         if (remaining <= 0) {
             LOG(D, "post-AP idle timeout — ending session");
             break;
@@ -431,6 +444,7 @@ void BleFlow::serve_post_ap() {
         auto msg = transport_->receive(
             static_cast<uint32_t>(std::min<long>(remaining, slice_ms)));
         if (!msg) continue;   // timeout → re-check deadline and link state
+        push_idle_deadline();
         if (!handle_post_ap(*msg)) break;
     }
 
