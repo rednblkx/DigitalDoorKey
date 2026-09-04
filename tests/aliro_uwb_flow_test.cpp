@@ -46,11 +46,14 @@ struct FakeUwbChannel : public ddk::aliro::UwbRangingChannel {
     void set_sender(std::function<bool(ddk::span<const uint8_t>)> s) override {
         send = std::move(s);
     }
-    void arm(uint32_t session_id, ddk::span<const uint8_t> ursk) override {
+    void arm(uint32_t session_id, ddk::span<const uint8_t> ursk,
+             const std::array<uint8_t, 2>& selected_version) override {
         armed = true;
         armed_session_id = session_id;
         armed_ursk.assign(ursk.begin(), ursk.end());
+        armed_version = selected_version;
     }
+    std::array<uint8_t, 2> armed_version{0, 0};
     void handle_frame(ddk::span<const uint8_t> frame) override {
         frames_in.emplace_back(frame.begin(), frame.end());
         if (reply_after_initiate && !replied && send) {

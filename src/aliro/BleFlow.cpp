@@ -171,7 +171,8 @@ bool BleFlow::offer_ursk(Session& session) {
     if (uwb_channel_) {
         uwb_channel_->arm(uwb_session_id,
                           ddk::span<const uint8_t>(ctx->ursk()->data(),
-                                                   ctx->ursk()->size()));
+                                                   ctx->ursk()->size()),
+                          config_.selected_version);
     }
     if (callbacks_.on_ursk_available)
         callbacks_.on_ursk_available(*ctx->ursk(), uwb_session_id);
