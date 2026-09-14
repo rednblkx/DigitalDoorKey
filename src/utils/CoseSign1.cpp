@@ -2,8 +2,7 @@
 #include "CommonCryptoUtils.h"
 #include "DDKLogging.h"
 #include <cbor.h>
-#include <mbedtls/ecdsa.h>
-#include <mbedtls/md.h>
+#include "mbedtls_compat.h"
 #include <cstring>
 
 #if defined(CONFIG_IDF_CMAKE)

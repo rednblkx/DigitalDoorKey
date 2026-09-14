@@ -1,6 +1,6 @@
 #include "ddk/aliro/BleAdvertising.h"
 #include "DDKLogging.h"
-#include <mbedtls/aes.h>
+#include "mbedtls_compat.h"
 
 namespace ddk::aliro {
 

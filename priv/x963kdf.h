@@ -4,7 +4,7 @@
 #ifndef X963KDF_H
 #define X963KDF_H
 
-#include <mbedtls/md.h>
+#include "mbedtls_compat.h"
 
 class X963KDF {
 public:

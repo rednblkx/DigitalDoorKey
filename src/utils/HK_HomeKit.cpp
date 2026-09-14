@@ -5,10 +5,7 @@
 #include "DDKLogging.h"
 #include "ddk/store/ReaderIdentity.h"
 #include "ddk/store/Issuer.h"
-#include <mbedtls/ecp.h>
-#include <mbedtls/sha256.h>
-#include <mbedtls/sha1.h>
-#include <mbedtls/error.h>
+#include "mbedtls_compat.h"
 #include <vector>
 
 std::mutex HK_HomeKit::provision_mutex;

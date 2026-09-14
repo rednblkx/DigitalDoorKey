@@ -3,7 +3,7 @@
 #include "ddk/transport/ApduChannel.h"
 #include <cstdint>
 #include <cstring>
-#include <mbedtls/hkdf.h>
+#include "mbedtls_compat.h"
 
 namespace {
 constexpr const char* kVolatileFast = "VolatileFast";

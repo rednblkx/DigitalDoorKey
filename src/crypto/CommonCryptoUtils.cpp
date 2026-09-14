@@ -4,16 +4,14 @@
 #include <cstdio>
 #include <string>
 
-#include <mbedtls/ecp.h>
-#include <mbedtls/md.h>
-#include <mbedtls/ecdh.h>
-#include <mbedtls/ecdsa.h>
-#include <mbedtls/error.h>
-#include <mbedtls/platform_util.h>
+#include "mbedtls_compat.h"
+#include <psa/crypto.h>
 #include "DDKLogging.h"
-#include "mbedtls/sha1.h"
+#include "mbedtls_compat.h"
+#include <psa/crypto.h>
 
-#include <mbedtls/gcm.h>
+#include "mbedtls_compat.h"
+#include <psa/crypto.h>
 #if defined(CONFIG_IDF_CMAKE)
 #include <esp_random.h>
 #else 
@@ -310,19 +308,12 @@ std::vector<uint8_t> encryptAesGcm(
     return readerPublicKey;
   }
   std::vector<uint8_t> hash_identifier_sha1(const std::vector<uint8_t>& key) {
-    std::vector<unsigned char> hashable;
-    hashable.insert(hashable.end(), key.begin(), key.end());
-
     std::vector<uint8_t> hash(32, 0);
-
-    mbedtls_sha1_context ctx;
-    mbedtls_sha1_init(&ctx);
-    if (mbedtls_sha1_starts(&ctx) == 0) {
-      mbedtls_sha1_update(&ctx, hashable.data(), hashable.size());
-      mbedtls_sha1_finish(&ctx, hash.data());
+    size_t hash_len = 0;
+    if (psa_hash_compute(PSA_ALG_SHA_1, key.data(), key.size(),
+                         hash.data(), 20, &hash_len) != PSA_SUCCESS) {
+      hash.assign(32, 0);
     }
-    mbedtls_sha1_free(&ctx);
-
     return hash;
   }
   std::vector<uint8_t> hash_identifier_sha256(const std::vector<uint8_t>& key) {

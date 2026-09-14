@@ -2,7 +2,7 @@
 #include "DDKLogging.h"
 #include <algorithm>
 #include <cstring>
-#include <mbedtls/hkdf.h>
+#include "mbedtls_compat.h"
 #include <vector>
 
 namespace {

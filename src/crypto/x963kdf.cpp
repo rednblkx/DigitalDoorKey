@@ -3,7 +3,7 @@
  */
 
 #include "x963kdf.h"
-#include <mbedtls/cmac.h>
+#include "mbedtls_compat.h"
 #include <cstdint>
 #include "DDKLogging.h"
 #if defined(CONFIG_IDF_CMAKE)

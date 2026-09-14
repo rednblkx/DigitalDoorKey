@@ -4,9 +4,7 @@
 
 #include "CommonCryptoUtils.h"
 #include <ISO18013SecureContext.h>
-#include <mbedtls/hkdf.h>
-#include <mbedtls/gcm.h>
-#include <mbedtls/error.h>
+#include "mbedtls_compat.h"
 #include "DDKLogging.h"
 #include <cbor.h>
 #include <vector>
@@ -176,9 +174,7 @@ std::vector<uint8_t> ISO18013SecureContext::decryptMessageFromEndpoint(const std
     int setKeyErr = mbedtls_gcm_setkey(ctx, MBEDTLS_CIPHER_ID_AES, endpointKey.data(), keyLength * 8);
     if (setKeyErr != 0)
     {
-        char err_msg[128];
-        mbedtls_strerror(setKeyErr, err_msg, sizeof(err_msg));
-        LOG(E, "Cannot set key - %s - %d", err_msg, setKeyErr);
+        LOG(E, "Cannot set key - %d", setKeyErr);
         return std::vector<unsigned char>();
     }
     int decErr = mbedtls_gcm_auth_decrypt(ctx, cborCiphertext.size() - 16,
@@ -189,9 +185,7 @@ std::vector<uint8_t> ISO18013SecureContext::decryptMessageFromEndpoint(const std
 
     if (decErr != 0)
     {
-        char err_msg[128];
-        mbedtls_strerror(decErr, err_msg, sizeof(err_msg));
-        LOG(E, "Cannot decrypt - %s - %d", err_msg, decErr);
+        LOG(E, "Cannot decrypt - %d", decErr);
         return std::vector<unsigned char>();
     }
 

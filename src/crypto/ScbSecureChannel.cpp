@@ -6,8 +6,7 @@
 #include "DDKLogging.h"
 #include <cstdint>
 #include <cstring>
-#include <mbedtls/aes.h>
-#include <mbedtls/cmac.h>
+#include "mbedtls_compat.h"
 
 #include "CommonCryptoUtils.h"
 #include "SecureBuffer.h"

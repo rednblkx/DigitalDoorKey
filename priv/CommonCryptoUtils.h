@@ -1,14 +1,8 @@
 #pragma once
-#include "mbedtls/ecp.h"
+#include "mbedtls_compat.h"
 #include "ddk/Span.h"
 #include <vector>
 #include <array>
-#include <mbedtls/aes.h>
-#include <mbedtls/gcm.h>
-#include <mbedtls/ecp.h>
-#include <mbedtls/ecdsa.h>
-#include <mbedtls/sha256.h>
-#include <mbedtls/platform_util.h>
 
 namespace CommonCryptoUtils {
 

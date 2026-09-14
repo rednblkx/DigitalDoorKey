@@ -17,8 +17,7 @@
 #else 
 #include "sodium.h"
 #endif
-#include <mbedtls/sha256.h>
-#include <mbedtls/error.h>
+#include "mbedtls_compat.h"
 #include <cbor.h>
 #include <vector>
 #include "ddk/transport/ApduChannel.h"

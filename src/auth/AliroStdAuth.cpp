@@ -8,10 +8,7 @@
 #include "simple_tlv.hpp"
 #include "TLV8.hpp"
 #include "DDKLogging.h"
-#include <mbedtls/ecdsa.h>
-#include <mbedtls/bignum.h>
-#include <mbedtls/md.h>
-#include <mbedtls/ecp.h>
+#include "mbedtls_compat.h"
 #include <cstring>
 #include <vector>
 

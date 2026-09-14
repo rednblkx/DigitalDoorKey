@@ -6,7 +6,7 @@
 #include <initializer_list>
 
 #if defined(CONFIG_IDF_CMAKE)
-#include <mbedtls/platform_util.h>
+#include "mbedtls_compat.h"
 #endif
 
 inline void secure_zero(void* p, size_t len) {
