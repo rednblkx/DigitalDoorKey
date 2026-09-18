@@ -18,7 +18,7 @@ idf_component_register(
         PRIV_REQUIRES mbedtls libsodium cbor
         INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/include
         PRIV_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/priv)
-target_compile_definitions(${COMPONENT_LIB} PUBLIC "-DLOG_LOCAL_LEVEL=ESP_LOG_VERBOSE")
+      target_compile_definitions(${COMPONENT_LIB} PRIVATE "-DLOG_LOCAL_LEVEL=ESP_LOG_DEBUG")
 else()
 project(HK-HomeKit-Lib)
 
