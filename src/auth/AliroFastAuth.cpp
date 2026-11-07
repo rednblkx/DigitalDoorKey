@@ -38,7 +38,7 @@ FastAuthResult AliroFastAuth::attest(const std::vector<uint8_t>& cryptogram)
             auto plaintext = CommonCryptoUtils::decryptAesGcm(
                 cryptogram, sk, {0,0,0,0,0,0,0,0,0,0,0,0});
             if (!plaintext.empty()) {
-                TLV8 tlv;
+                DdkTlv8 tlv;
                 tlv.parse(plaintext.data(), plaintext.size());
                 if (tlv.expect(0x5E) && tlv.expect(0x91) && tlv.expect(0x92)) {
                     return {&issuer, &endpoint, ddk::kFlowFAST,

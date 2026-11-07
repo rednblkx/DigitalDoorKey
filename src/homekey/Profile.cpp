@@ -29,7 +29,7 @@ FailureReason Profile::validate_select(
         len -= 2;
     }
 
-    TLV8 tlv;
+    DdkTlv8 tlv;
     tlv.parse(select_response.data(), len);
 
     const tlv_t* versions = tlv.expect(0x5C);
@@ -98,7 +98,7 @@ FlowState Profile::step(Session& session, FlowState current)
         return FlowState::Failed;
     }
 
-    TLV8 Auth0Res;
+    DdkTlv8 Auth0Res;
     Auth0Res.parse(response.data.data(), response.data.size());
     const tlv_t* pubkey = Auth0Res.expect(kEndpoint_Public_Key);
     constexpr size_t kP256UncompressedPublicKeySize = 1 + 32 + 32;

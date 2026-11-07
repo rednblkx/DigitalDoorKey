@@ -15,7 +15,7 @@ HK_HomeKit::HK_HomeKit(ddk::CredentialStore& store, std::function<void()> remove
 std::vector<uint8_t> HK_HomeKit::processResult() {
   std::lock_guard<std::mutex> lock(provision_mutex);
 
-  TLV8 rxTlv;
+  DdkTlv8 rxTlv;
   rxTlv.parse(tlvData.data(), tlvData.size());
   if (!rxTlv.ok()) {
     LOG(E, "Failed to parse incoming TLV data");
@@ -34,14 +34,14 @@ std::vector<uint8_t> HK_HomeKit::processResult() {
       if (RKR != rxTlv.end() && RKR->tag == kReader_Reader_Key_Request) {
         LOG(I, "GET READER KEY REQUEST");
         if (!store.reader_identity().private_key.empty() && !store.reader_identity().group_identifier.empty()) {
-          TLV8 getResSub;
+          DdkTlv8 getResSub;
           getResSub.add(kReader_Res_Key_Identifier, store.reader_identity().group_identifier);
           std::vector<uint8_t> subTlv = getResSub.get();
           LOG(D, "%s", redactHex("SUB-TLV", subTlv).c_str());
-          TLV8 getResSubStatus;
+          DdkTlv8 getResSubStatus;
           getResSubStatus.add(kReader_Res_Status, 0);
           std::vector<uint8_t> getSubTlvStatus = getResSubStatus.get();
-          TLV8 getResTlv;
+          DdkTlv8 getResTlv;
           getResTlv.add(kReader_Res_Reader_Key_Response, subTlv);
           getResTlv.add(kReader_Res_Reader_Key_Response, getSubTlvStatus);
           std::vector<uint8_t> tlvRes = getResTlv.get();
@@ -57,11 +57,11 @@ std::vector<uint8_t> HK_HomeKit::processResult() {
         int ret = set_reader_key(RKR->value);
         if (ret == 0) {
           LOG(I, "READER KEY SAVED TO NVS, COMPOSING RESPONSE");
-          TLV8 rkResSub;
+          DdkTlv8 rkResSub;
           rkResSub.add(kReader_Res_Status, 0);
           std::vector<uint8_t> rkSubTlv = rkResSub.get();
           LOG(D, "%s", redactHex("SUB-TLV", rkSubTlv).c_str());
-          TLV8 rkResTlv;
+          DdkTlv8 rkResTlv;
           rkResTlv.add(kReader_Res_Reader_Key_Response, rkSubTlv);
           return rkResTlv.get();
         }
@@ -69,7 +69,7 @@ std::vector<uint8_t> HK_HomeKit::processResult() {
         LOG(I, "TLV DCR: %d", DCR->length());
         LOG(D, "PROVISION DEVICE CREDENTIAL REQUEST");
         auto state = provision_device_cred(DCR->value);
-        TLV8 dcrResSubTlv;
+        DdkTlv8 dcrResSubTlv;
         if (!std::get<std::vector<uint8_t>>(state).empty()) {
           dcrResSubTlv.add(kDevice_Res_Issuer_Key_Identifier, std::get<0>(state).size(), std::get<0>(state).data());
         }
@@ -77,7 +77,7 @@ std::vector<uint8_t> HK_HomeKit::processResult() {
         std::vector<uint8_t> packedRes = dcrResSubTlv.get();
         LOG(D, "SUB-TLV: %d", (int)packedRes.size());
         LOG(D, "%s", redactHex("SUB-TLV", packedRes).c_str());
-        TLV8 dcrResTlv;
+        DdkTlv8 dcrResTlv;
         dcrResTlv.add(kDevice_Credential_Response, packedRes);
         return dcrResTlv.get();
       }
@@ -92,7 +92,7 @@ std::vector<uint8_t> HK_HomeKit::processResult() {
         auto state = remove_device_cred(DCR->value);
         const auto& issuerId = std::get<0>(state);
         int status = std::get<1>(state);
-        TLV8 dcrResSubTlv;
+        DdkTlv8 dcrResSubTlv;
         if (!issuerId.empty()) {
           dcrResSubTlv.add(kDevice_Res_Issuer_Key_Identifier, issuerId.size(), issuerId.data());
         }
@@ -100,7 +100,7 @@ std::vector<uint8_t> HK_HomeKit::processResult() {
         std::vector<uint8_t> packedRes = dcrResSubTlv.get();
         LOG(D, "SUB-TLV: %d", (int)packedRes.size());
         LOG(D, "%s", redactHex("SUB-TLV", packedRes).c_str());
-        TLV8 dcrResTlv;
+        DdkTlv8 dcrResTlv;
         dcrResTlv.add(kDevice_Credential_Response, packedRes);
         return dcrResTlv.get();
       }
@@ -112,7 +112,7 @@ std::vector<uint8_t> HK_HomeKit::processResult() {
 
 std::tuple<std::vector<uint8_t>, int> HK_HomeKit::provision_device_cred(const std::vector<uint8_t> &buf) {
   LOG(D, "DCReq Add length: %d (data redacted)", (int)buf.size());
-  TLV8 dcrTlv;
+  DdkTlv8 dcrTlv;
   dcrTlv.parse(buf.data(), buf.size());
   if (!dcrTlv.ok()) {
     LOG(E, "DCReq TLV parse error");
@@ -201,7 +201,7 @@ std::tuple<std::vector<uint8_t>, int> HK_HomeKit::provision_device_cred(const st
 
 std::tuple<std::vector<uint8_t>, int> HK_HomeKit::remove_device_cred(const std::vector<uint8_t> &buf) {
   LOG(D, "DCReq Remove Buffer length: %d (data redacted)", (int)buf.size());
-  TLV8 dcrTlv;
+  DdkTlv8 dcrTlv;
   dcrTlv.parse(buf.data(), buf.size());
   if(!dcrTlv.ok()){
     LOG(E, "DCReq TLV parse error");
@@ -322,7 +322,7 @@ std::tuple<std::vector<uint8_t>, int> HK_HomeKit::remove_device_cred(const std::
 
 int HK_HomeKit::set_reader_key(const std::vector<uint8_t>& buf) {
   LOG(D, "Setting reader key (%d bytes, redacted)", (int)buf.size());
-  TLV8 rkrTLv;
+  DdkTlv8 rkrTLv;
   rkrTLv.parse(buf.data(), buf.size());
   if (!rkrTLv.ok()) {
     LOG(E, "RKR TLV parse error");
