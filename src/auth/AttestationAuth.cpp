@@ -31,7 +31,7 @@ HKAttestationAuth::HKAttestationAuth(
 
 std::vector<unsigned char> HKAttestationAuth::attestation_salt(std::vector<unsigned char> &env1Data, std::vector<unsigned char> &readerCmd)
 {
-  TLV8 env1ResTlv;
+  DdkTlv8 env1ResTlv;
   env1ResTlv.parse(env1Data.data(), env1Data.size());
   tlv_it tlvEnv1Ndef = env1ResTlv.find(kNDEF_MESSAGE);
   if (tlvEnv1Ndef == env1ResTlv.end()) {
@@ -206,7 +206,7 @@ std::vector<unsigned char> HKAttestationAuth::envelope2Cmd(std::vector<uint8_t> 
   LOG(D, "Attestation package: %zu bytes", attestation_package.size());
   LOG(D, "%s", redactHex("ATT PKG", attestation_package).c_str());
 
-  TLV8 data(true);
+  DdkTlv8 data(true);
   data.parse(attestation_package.data(), attestation_package.size());
   tlv_it tlvEncMsg = data.find(0x53);
   if (tlvEncMsg == data.end()) {

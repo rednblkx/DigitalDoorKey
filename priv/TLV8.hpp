@@ -37,7 +37,7 @@ using const_iterator = list_type::const_iterator;
 
 // --- TLV Class ---
 // Manages a collection of tlv_t items
-class TLV8 {
+class DdkTlv8 {
 private:
     list_type items; // Composition: Store items in a list
     bool use_ber_length_encoding = false; // Flag to control length encoding style (BER vs TLV8)
@@ -53,7 +53,7 @@ private:
 public:
     // --- Constructors ---
 
-    TLV8(bool use_ber = false) : use_ber_length_encoding(use_ber) {}
+    DdkTlv8(bool use_ber = false) : use_ber_length_encoding(use_ber) {}
 
     // --- Modifiers ---
 

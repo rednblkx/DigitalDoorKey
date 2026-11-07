@@ -131,7 +131,7 @@ HomeKeyStdAuthResult HomeKeyStdAuth::attest()
 
     // --- Parse decrypted TLV ---
 
-    TLV8 tlv;
+    DdkTlv8 tlv;
     tlv.parse(decrypted.data(), decrypted.size());
     auto sigItem = tlv.expect(0x9E);
     if (!sigItem) {

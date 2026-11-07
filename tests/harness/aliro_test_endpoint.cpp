@@ -459,7 +459,7 @@ ddk::ApduResponse AliroTestEndpoint::handle_auth0(const std::vector<uint8_t>& da
     ddk::ApduResponse resp;
     resp.sw1 = 0x90;
     resp.sw2 = 0x00;
-    TLV8 out;
+    DdkTlv8 out;
 
     if (scenario.malformed_auth0) {
         // Cryptogram-shaped but no 0x86 pubkey: the reader must bail via
@@ -487,7 +487,7 @@ ddk::ApduResponse AliroTestEndpoint::handle_auth0(const std::vector<uint8_t>& da
                 sk[i] = static_cast<uint8_t>(0xE0 + i);
         }
 
-        TLV8 payload;
+        DdkTlv8 payload;
         payload.add(0x5E, std::vector<uint8_t>{0x00, 0x01});
         payload.add(0x91, credential_tdate());
         payload.add(0x92, revocation_tdate());
@@ -546,7 +546,7 @@ ddk::ApduResponse AliroTestEndpoint::handle_auth1(const std::vector<uint8_t>& da
         ? std::vector<uint8_t>(64, 0xAB)
         : sign_es256_raw(endpoint_key.priv, ver);
 
-    TLV8 payload;
+    DdkTlv8 payload;
     payload.add(0x9E, std::move(sig));
     payload.add(0x5A, scenario.unknown_endpoint_key
         ? std::vector<uint8_t>(65, 0x11)

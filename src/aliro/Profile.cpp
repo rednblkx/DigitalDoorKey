@@ -142,7 +142,7 @@ FlowState Profile::step(Session& session, FlowState current)
   auto response = session.apdu().transceive(apdu);
 
   if (response.ok() && response.data.size() > 64 && response.data[0] == 0x86) {
-    TLV8 Auth0Res;
+    DdkTlv8 Auth0Res;
     Auth0Res.parse(response.data.data(), response.data.size());
     const tlv_t *pubkey = Auth0Res.expect(kEndpoint_Public_Key);
     // SEC1 uncompressed P-256 point: 0x04 prefix || X (32 bytes) || Y (32 bytes).

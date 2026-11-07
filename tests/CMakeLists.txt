@@ -128,6 +128,10 @@ target_link_libraries(aliro_test_harness PUBLIC ddk_under_test)
 
 enable_testing()
 
+add_executable(tlv8_coexistence_test tlv8_coexistence_test.cpp tlv8_foreign.cpp)
+target_include_directories(tlv8_coexistence_test PRIVATE ${DDK_ROOT}/priv)
+add_test(NAME tlv8_coexistence_test COMMAND tlv8_coexistence_test)
+
 # Pre-existing plain-main tests, wired in as-is. They include private
 # headers (ndef.h), so priv is needed too.
 foreach(t IN ITEMS span_test ndef_pack_test ndef_unpack_test)
